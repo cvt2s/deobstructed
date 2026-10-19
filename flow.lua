@@ -1,12 +1,6 @@
---[[
-    Flow UI 1.0.0 — component library for Roblox executors
-    single file build, generated from src/ by build.mjs
-]]
-
 local __modules = {}
 local __loaded = {}
 
--- PURE-BEGIN:flowStartupCheckpoint
 local __flowStartupCheckpointCount = 0
 local function __flowStartupCheckpoint()
     __flowStartupCheckpointCount += 1
@@ -17,15 +11,7 @@ local function __flowStartupCheckpoint()
         task.wait()
     end
 end
--- PURE-END:flowStartupCheckpoint
 
---[[
-    Detection hygiene.
-
-    cloneref hands back a reference the game cannot compare against its own, so a
-    script that hooks game.GetService or keeps a table of "known" service objects
-    has nothing of ours to match. Services are fetched once and cached.
-]]
 local __cloneref = cloneref or clonereference or function(object)
     return object
 end
@@ -71,40 +57,27 @@ __modules["core/audio"] = function(require)
 __flowStartupCheckpoint()
 local SoundService = __service("SoundService")
 
---[[
-    Short UI sounds. Every clip ships with the Roblox client under rbxasset://,
-    so nothing here can be moderated, rate-limited or fail to fetch.
-
-    One Sound instance per name is reused rather than cloned — replaying cuts the
-    previous tail, which is what you want when a toggle is spammed.
-]]
-
 local Audio = {}
 
 Audio.enabled = true
--- 0.4 was inaudible over game audio — the clips are short, soft system sounds
--- and the quietest of them landed near 0.09. The per-clip ratios below are
--- unchanged, so the balance between them is the same, just louder overall.
+
 Audio.volume = 0.7
 
 Audio.set = {
-    -- pitch is what separates on from off; same clip, brighter or duller
+
     on = { Id = "rbxasset://sounds/switch.wav", Speed = 1.2, Volume = 1 },
     off = { Id = "rbxasset://sounds/switch.wav", Speed = 0.9, Volume = 0.85 },
     click = { Id = "rbxasset://sounds/clickfast.wav", Speed = 1.5, Volume = 0.7 },
     select = { Id = "rbxasset://sounds/clickfast.wav", Speed = 1.9, Volume = 0.5 },
     open = { Id = "rbxasset://sounds/switch3.wav", Speed = 1.1, Volume = 0.75 },
     close = { Id = "rbxasset://sounds/switch3.wav", Speed = 0.85, Volume = 0.65 },
-    -- switch.wav at 2.4x is ~0.1s, short enough to read as a detent rather than a click
+
     tick = { Id = "rbxasset://sounds/switch.wav", Speed = 2.4, Volume = 0.32 },
 }
 
 local pool = {}
 local holder
 
--- The sound pool used to live in SoundService, where any game script could
--- enumerate a folder called "FlowAudio". It now sits inside the protected GUI
--- container alongside everything else; a Sound parented to a GUI still plays 2D.
 function Audio.attach(host)
     Audio.host = host
     if holder then
@@ -177,7 +150,6 @@ function Audio.play(name, speed)
     end)
 end
 
--- replace a clip, e.g. Flow.Audio.define("on", { Id = "rbxassetid://123", Speed = 1 })
 function Audio.define(name, spec)
     Audio.set[name] = spec
     local hit = pool[name]
@@ -440,23 +412,7 @@ local Lucide = require("core/lucide")
 
 local Icons = {}
 
---[[
-    Real Lucide artwork, drawn from spritesheets, is the default. The vector set
-    below stays as the fallback for anything Lucide has no glyph for, and as the
-    escape hatch if you would rather not depend on image assets at all:
-
-        Flow.Icons.sprites = false
-]]
 Icons.sprites = Lucide
-
---[[
-    Icons are authored on a 100x100 grid in the style of Lucide: 2px strokes on a
-    24px canvas, round caps, no fills. On this grid that is a stroke weight of 8.
-
-    line() is the workhorse — give it two endpoints and it works out the centre,
-    length and angle itself, so an icon reads as a list of pen strokes rather than
-    a pile of hand-computed rotations.
-]]
 
 local WEIGHT = 9.5
 
@@ -464,7 +420,7 @@ local function line(x1, y1, x2, y2, t, a)
     t = t or WEIGHT
     local dx, dy = x2 - x1, y2 - y1
     local len = math.sqrt(dx * dx + dy * dy)
-    -- + t so the rounded caps sit past the endpoints, the way a round linecap does
+
     return { "bar", (x1 + x2) / 2, (y1 + y2) / 2, len + t, t, math.deg(math.atan2(dy, dx)), 999, a or 0 }
 end
 
@@ -480,7 +436,6 @@ local function disc(x, y, d, a)
     return { "dot", x, y, d, d, 0, 999, a or 0 }
 end
 
--- solid shape rather than an outline, for glyphs that read better filled at 13px
 local function slab(x, y, w, h, rot, r, a)
     return { "bar", x, y, w, h, rot or 0, r or 0, a or 0 }
 end
@@ -489,21 +444,19 @@ local function hole(x, y, d)
     return { "hole", x, y, d, d, 0, 999, 0 }
 end
 
--- Names that resolve to a real image instead of drawn primitives. Anything that
--- takes an Icon accepts these the same way it accepts a shape name.
 Icons.images = {
-    -- the Image asset, not the Decal that wraps it (78239445499664) — decal ids
-    -- do not render in ImageLabel.Image
+
+
     brand = "rbxassetid://120877581663049",
 }
 
 local set = {
-    -- kept as the fallback silhouette if the brand image ever fails to load
+
     ["brand-vector"] = { slab(44, 50, 12, 60, -12, 5), slab(59, 26, 34, 12, -12, 5), slab(55, 50, 26, 12, -12, 5) },
 
-    ----------------------------------------------------------------------------
-    -- glyphs
-    ----------------------------------------------------------------------------
+
+
+
 
     plus = { line(50, 20, 50, 80), line(20, 50, 80, 50) },
     minus = { line(20, 50, 80, 50) },
@@ -524,12 +477,12 @@ local set = {
     ["arrow-up"] = { line(50, 84, 50, 16), line(24, 42, 50, 16), line(76, 42, 50, 16) },
     dots = { disc(20, 50, 12), disc(50, 50, 12), disc(80, 50, 12) },
 
-    ----------------------------------------------------------------------------
-    -- interface
-    ----------------------------------------------------------------------------
+
+
+
 
     search = { circle(44, 44, 48), line(68, 68, 86, 86) },
-    -- rim + hub + stubby teeth that touch the rim: reads as a cog, not a sun
+
     gear = {
         circle(50, 50, 46, 9),
         disc(50, 50, 16),
@@ -648,9 +601,9 @@ local set = {
     wand = { line(20, 80, 74, 26), disc(80, 20, 15), disc(24, 24, 10), disc(84, 58, 10) },
     sparkle = { line(50, 16, 50, 84, 9), line(16, 50, 84, 50, 9), line(28, 28, 72, 72, 7), line(72, 28, 28, 72, 7) },
 
-    ----------------------------------------------------------------------------
-    -- combat
-    ----------------------------------------------------------------------------
+
+
+
 
     target = {
         circle(50, 50, 66),
@@ -704,9 +657,9 @@ local set = {
         line(66, 72, 82, 72),
     },
 
-    ----------------------------------------------------------------------------
-    -- movement
-    ----------------------------------------------------------------------------
+
+
+
 
     fly = { line(12, 50, 88, 20), line(88, 20, 56, 86), line(56, 86, 46, 56), line(46, 56, 12, 50) },
     jump = { line(50, 64, 50, 18), line(30, 38, 50, 18), line(70, 38, 50, 18), line(18, 86, 82, 86) },
@@ -714,9 +667,9 @@ local set = {
     teleport = { circle(26, 74, 28), circle(74, 26, 28), line(42, 58, 58, 42) },
     orbit = { circle(50, 50, 60), disc(50, 50, 18), disc(86, 28, 14) },
 
-    ----------------------------------------------------------------------------
-    -- visuals
-    ----------------------------------------------------------------------------
+
+
+
 
     eye = { circle(50, 50, 50), disc(50, 50, 18), line(8, 50, 20, 50), line(80, 50, 92, 50) },
     esp = {
@@ -735,9 +688,9 @@ local set = {
     radar = { circle(50, 50, 78), circle(50, 50, 42, 7, 0.4), disc(50, 50, 11), line(50, 50, 76, 30) },
     wall = { rect(50, 50, 76, 60, 6), line(12, 50, 88, 50), line(50, 20, 50, 50), line(32, 50, 32, 80), line(68, 50, 68, 80) },
 
-    ----------------------------------------------------------------------------
-    -- utility
-    ----------------------------------------------------------------------------
+
+
+
 
     backpack = { rect(50, 62, 58, 48, 10), line(36, 38, 36, 26), line(64, 38, 64, 26), line(36, 26, 64, 26), line(38, 62, 62, 62) },
     coin = { circle(50, 50, 70), line(50, 32, 50, 68), line(38, 40, 62, 40), line(38, 60, 62, 60) },
@@ -755,8 +708,6 @@ local set = {
     branch = { circle(28, 22, 24), circle(28, 78, 24), line(28, 34, 28, 66), line(40, 78, 68, 78), circle(80, 78, 24) },
 }
 
--- Second names for the same glyph, so modules can be named after what they do.
--- Resolved before both the sprite and the vector lookup.
 local alias = {
     crosshair = "target",
     aim = "target",
@@ -828,12 +779,10 @@ function Icons.define(name, parts)
     set[name] = parts
 end
 
--- register an image under a shape name, e.g. Icons.image("brand", "rbxassetid://123")
 function Icons.image(name, asset)
     Icons.images[name] = asset
 end
 
--- authoring helpers, exposed so custom icons can be written the same way
 Icons.line = line
 Icons.circle = circle
 Icons.rect = rect
@@ -871,7 +820,7 @@ function Icons.draw(props)
         Parent = props.Parent,
     })
 
-    -- a Lucide sprite wins over the vector drawing when one exists
+
     local sprite = Icons.sprites and typeof(name) == "string" and Icons.sprites[name]
     if sprite and not Icons.images[name] then
         local img = Util.new("ImageLabel", {
@@ -904,7 +853,7 @@ function Icons.draw(props)
             ZIndex = holder.ZIndex,
             Parent = holder,
         })
-        -- brand marks keep their own colours unless a tint is explicitly requested
+
         if props.Token then
             Theme.bind(img, "ImageColor3", props.Token)
         elseif props.Color then
@@ -966,15 +915,6 @@ function Icons.draw(props)
     return holder
 end
 
---[[
-    A dead asset id renders as nothing at all, which reads as a missing icon
-    rather than a broken one. Scripts carry plenty of them — ids get moderated or
-    deleted long after the script was written — so when the fetch actually fails,
-    swap in a drawn glyph.
-
-    The replacement pieces are moved into the original holder rather than nested
-    inside a second one, because Icons.tint colours the holder's direct children.
-]]
 function Icons.rescue(holder, img, props, size)
     task.spawn(function()
         if img.IsLoaded then
@@ -984,9 +924,9 @@ function Icons.rescue(holder, img, props, size)
         local failed = false
         local provider = __service("ContentProvider")
         if provider then
-            -- PreloadAsync yields until the fetch settles, but with a card full
-            -- of icons the status callback does not reliably fire for every
-            -- one, so its verdict is only ever used to fail fast
+
+
+
             pcall(function()
                 provider:PreloadAsync({ img }, function(_, status)
                     failed = status ~= Enum.AssetFetchStatus.Success
@@ -994,8 +934,8 @@ function Icons.rescue(holder, img, props, size)
             end)
         end
 
-        -- the authority is IsLoaded: once the fetch has settled, an image that
-        -- still has not loaded is one that never will
+
+
         if not failed then
             local deadline = os.clock() + 5
             while not img.IsLoaded and os.clock() < deadline do
@@ -1019,8 +959,8 @@ function Icons.rescue(holder, img, props, size)
             ZIndex = props.ZIndex,
         })
         img:Destroy()
-        -- the fallback may itself be a sprite rather than a drawn glyph, and
-        -- Icons.tint reads this attribute to decide how to colour the holder
+
+
         holder:SetAttribute("Image", spare:GetAttribute("Image"))
         for _, piece in ipairs(spare:GetChildren()) do
             piece.Parent = holder
@@ -1072,21 +1012,6 @@ end
 __flowStartupCheckpoint()
 __modules["core/luarmor"] = function(require)
 __flowStartupCheckpoint()
---[[
-    Reads the runtime variables Luarmor injects into a protected script.
-
-        LRM_SecondsLeft      seconds until the key expires, math.huge if auth_expire is unset
-        LRM_IsUserPremium    whitelist flag
-        LRM_UserNote         note attached to the key
-        LRM_LinkedDiscordID  discord id the key is bound to
-        LRM_TotalExecutions  executions made by this key
-        LRM_ScriptName / LRM_ScriptVersion
-
-    https://docs.luarmor.net/luarmor-user-manual-and-f.a.q
-
-    Nothing here errors when the script is not Luarmor-protected — every reader
-    returns nil and the UI falls back to showing no key.
-]]
 
 local Luarmor = {}
 
@@ -1094,10 +1019,8 @@ local HOUR = 3600
 local DAY = 86400
 local YEAR = 365 * DAY
 
--- anything longer than this counts as premium rather than a trial key
 Luarmor.PremiumAfter = 60 * HOUR
 
--- set by hand to preview a state, e.g. Luarmor.override = { SecondsLeft = math.huge }
 Luarmor.override = nil
 
 local NAMES = {
@@ -1111,9 +1034,6 @@ local NAMES = {
     "LRM_ScriptKey",
 }
 
--- Luarmor puts its variables in the protected script's own environment, which may
--- be the executor global table, _G, or a caller's env depending on how the script
--- was loaded, so check all of them.
 local function readGlobal(name)
     local envs = {}
 
@@ -1155,7 +1075,6 @@ function Luarmor.info()
     return out
 end
 
--- nil when there is no key data at all
 function Luarmor.secondsLeft()
     if Luarmor.override and Luarmor.override.SecondsLeft ~= nil then
         return Luarmor.override.SecondsLeft
@@ -1172,8 +1091,8 @@ function Luarmor.isLifetime()
     if left == nil then
         return false
     end
-    -- math.huge is the documented "no auth_expire" value; the year check catches
-    -- keys given an absurd expiry instead of none at all
+
+
     return left == math.huge or left > 50 * YEAR
 end
 
@@ -1193,7 +1112,6 @@ function Luarmor.plan()
     return Luarmor.isPremium() and "Premium" or "Free"
 end
 
--- "Lifetime", "12d 4h", "3h 20m", "45m", "Expired", or "No key"
 function Luarmor.duration()
     local left = Luarmor.secondsLeft()
     if left == nil then
@@ -1219,7 +1137,6 @@ function Luarmor.duration()
     return string.format("%dm", math.max(minutes, 1))
 end
 
--- nil for lifetime keys and when there is no key
 function Luarmor.expiry()
     local left = Luarmor.secondsLeft()
     if left == nil or left <= 0 or Luarmor.isLifetime() then
@@ -1242,86 +1159,79 @@ end
 __flowStartupCheckpoint()
 __modules["core/lucide"] = function(require)
 __flowStartupCheckpoint()
---[[
-    Lucide sprite data, generated by tools/fetch-icons.mjs — do not edit by hand.
-
-    Source: latte-soft/lucide-roblox (MIT), artwork from lucide.dev (ISC).
-    Each entry is { assetId, rectWidth, rectHeight, rectOffsetX, rectOffsetY }
-    against the 48px spritesheets.
-]]
 
 return {
-    ["alert"] = { 16898613869, 48, 48, 967, 0 }, -- triangle-alert
-    ["arrow-right"] = { 16898612629, 48, 48, 453, 820 }, -- arrow-right
-    ["arrow-up"] = { 16898612629, 48, 48, 967, 355 }, -- arrow-up
-    ["backpack"] = { 16898612629, 48, 48, 710, 869 }, -- backpack
-    ["badge"] = { 16898612629, 48, 48, 918, 661 }, -- award
-    ["ban"] = { 16898612629, 48, 48, 196, 967 }, -- ban
-    ["bell"] = { 16898612819, 48, 48, 820, 257 }, -- bell
-    ["bolt"] = { 16898613869, 48, 48, 918, 906 }, -- zap
-    ["branch"] = { 16898613353, 48, 48, 918, 906 }, -- git-branch
-    ["chart"] = { 16898612629, 48, 48, 918, 759 }, -- bar-chart-3
-    ["check"] = { 16898612819, 48, 48, 710, 869 }, -- check
-    ["chevron-down"] = { 16898612819, 48, 48, 196, 918 }, -- chevron-down
-    ["chevron-left"] = { 16898612819, 48, 48, 404, 967 }, -- chevron-left
-    ["chevron-right"] = { 16898612819, 48, 48, 869, 759 }, -- chevron-right
-    ["chevron-up"] = { 16898612819, 48, 48, 710, 918 }, -- chevron-up
-    ["chevrons-right"] = { 16898612819, 48, 48, 967, 710 }, -- chevrons-right
-    ["clock"] = { 16898613044, 48, 48, 771, 661 }, -- clock
-    ["close"] = { 16898613869, 48, 48, 869, 906 }, -- x
-    ["cloud"] = { 16898613044, 48, 48, 918, 306 }, -- cloud
-    ["code"] = { 16898613044, 48, 48, 355, 869 }, -- code
-    ["coin"] = { 16898613044, 48, 48, 257, 771 }, -- circle-dollar-sign
-    ["crown"] = { 16898613044, 48, 48, 404, 918 }, -- crown
-    ["cube"] = { 16898612819, 48, 48, 771, 196 }, -- box
-    ["dots"] = { 16898613353, 48, 48, 771, 49 }, -- ellipsis
-    ["esp"] = { 16898613699, 48, 48, 771, 857 }, -- scan-line
-    ["expand"] = { 16898613613, 48, 48, 771, 563 }, -- maximize
-    ["eye"] = { 16898613353, 48, 48, 771, 563 }, -- eye
-    ["filter"] = { 16898613353, 48, 48, 612, 869 }, -- filter
-    ["flame"] = { 16898613353, 48, 48, 967, 306 }, -- flame
-    ["flask"] = { 16898613353, 48, 48, 453, 820 }, -- flask-conical
-    ["fly"] = { 16898613699, 48, 48, 98, 820 }, -- plane
-    ["folder"] = { 16898613353, 48, 48, 404, 967 }, -- folder
-    ["gauge"] = { 16898613353, 48, 48, 771, 955 }, -- gauge
-    ["gear"] = { 16898613777, 48, 48, 771, 257 }, -- settings
-    ["ghost"] = { 16898613353, 48, 48, 869, 906 }, -- ghost
-    ["grid"] = { 16898613509, 48, 48, 918, 404 }, -- layout-grid
-    ["heart"] = { 16898613509, 48, 48, 661, 771 }, -- heart
-    ["hitbox"] = { 16898613699, 48, 48, 967, 196 }, -- scan
-    ["hourglass"] = { 16898613509, 48, 48, 49, 918 }, -- hourglass
-    ["info"] = { 16898613509, 48, 48, 612, 869 }, -- info
-    ["jump"] = { 16898612629, 48, 48, 918, 306 }, -- arrow-big-up
-    ["keyboard"] = { 16898613509, 48, 48, 453, 820 }, -- keyboard
-    ["layers"] = { 16898613509, 48, 48, 98, 967 }, -- layers
-    ["link"] = { 16898613509, 48, 48, 918, 453 }, -- link
-    ["lock"] = { 16898613509, 48, 48, 918, 857 }, -- lock
-    ["logout"] = { 16898613509, 48, 48, 820, 955 }, -- log-out
-    ["magnet"] = { 16898613509, 48, 48, 967, 906 }, -- magnet
-    ["minus"] = { 16898613613, 48, 48, 771, 196 }, -- minus
-    ["noclip"] = { 16898612819, 48, 48, 820, 147 }, -- box-select
-    ["orbit"] = { 16898613613, 48, 48, 967, 612 }, -- orbit
-    ["palette"] = { 16898613613, 48, 48, 453, 918 }, -- palette
-    ["pin"] = { 16898613613, 48, 48, 820, 257 }, -- map-pin
-    ["plus"] = { 16898613699, 48, 48, 257, 918 }, -- plus
-    ["power"] = { 16898613699, 48, 48, 820, 147 }, -- power
-    ["radar"] = { 16898613699, 48, 48, 820, 404 }, -- radar
-    ["refresh"] = { 16898613699, 48, 48, 404, 869 }, -- refresh-cw
-    ["search"] = { 16898613699, 48, 48, 918, 857 }, -- search
-    ["shield"] = { 16898613777, 48, 48, 869, 0 }, -- shield
-    ["signal"] = { 16898613777, 48, 48, 918, 0 }, -- signal
-    ["skull"] = { 16898613777, 48, 48, 49, 869 }, -- skull
-    ["sliders"] = { 16898613777, 48, 48, 820, 355 }, -- sliders-horizontal
-    ["sparkle"] = { 16898613777, 48, 48, 918, 49 }, -- sparkles
-    ["star"] = { 16898613777, 48, 48, 967, 147 }, -- star
-    ["swords"] = { 16898613777, 48, 48, 967, 759 }, -- swords
-    ["target"] = { 16898613044, 48, 48, 453, 869 }, -- crosshair
-    ["teleport"] = { 16898613869, 48, 48, 771, 857 }, -- waypoints
-    ["tracer"] = { 16898613509, 48, 48, 967, 759 }, -- locate-fixed
-    ["user"] = { 16898613869, 48, 48, 661, 869 }, -- user
-    ["users"] = { 16898613869, 48, 48, 967, 98 }, -- users
-    ["wall"] = { 16898612819, 48, 48, 918, 306 }, -- brick-wall
-    ["wand"] = { 16898613869, 48, 48, 453, 918 }, -- wand-sparkles
+    ["alert"] = { 16898613869, 48, 48, 967, 0 },
+    ["arrow-right"] = { 16898612629, 48, 48, 453, 820 },
+    ["arrow-up"] = { 16898612629, 48, 48, 967, 355 },
+    ["backpack"] = { 16898612629, 48, 48, 710, 869 },
+    ["badge"] = { 16898612629, 48, 48, 918, 661 },
+    ["ban"] = { 16898612629, 48, 48, 196, 967 },
+    ["bell"] = { 16898612819, 48, 48, 820, 257 },
+    ["bolt"] = { 16898613869, 48, 48, 918, 906 },
+    ["branch"] = { 16898613353, 48, 48, 918, 906 },
+    ["chart"] = { 16898612629, 48, 48, 918, 759 },
+    ["check"] = { 16898612819, 48, 48, 710, 869 },
+    ["chevron-down"] = { 16898612819, 48, 48, 196, 918 },
+    ["chevron-left"] = { 16898612819, 48, 48, 404, 967 },
+    ["chevron-right"] = { 16898612819, 48, 48, 869, 759 },
+    ["chevron-up"] = { 16898612819, 48, 48, 710, 918 },
+    ["chevrons-right"] = { 16898612819, 48, 48, 967, 710 },
+    ["clock"] = { 16898613044, 48, 48, 771, 661 },
+    ["close"] = { 16898613869, 48, 48, 869, 906 },
+    ["cloud"] = { 16898613044, 48, 48, 918, 306 },
+    ["code"] = { 16898613044, 48, 48, 355, 869 },
+    ["coin"] = { 16898613044, 48, 48, 257, 771 },
+    ["crown"] = { 16898613044, 48, 48, 404, 918 },
+    ["cube"] = { 16898612819, 48, 48, 771, 196 },
+    ["dots"] = { 16898613353, 48, 48, 771, 49 },
+    ["esp"] = { 16898613699, 48, 48, 771, 857 },
+    ["expand"] = { 16898613613, 48, 48, 771, 563 },
+    ["eye"] = { 16898613353, 48, 48, 771, 563 },
+    ["filter"] = { 16898613353, 48, 48, 612, 869 },
+    ["flame"] = { 16898613353, 48, 48, 967, 306 },
+    ["flask"] = { 16898613353, 48, 48, 453, 820 },
+    ["fly"] = { 16898613699, 48, 48, 98, 820 },
+    ["folder"] = { 16898613353, 48, 48, 404, 967 },
+    ["gauge"] = { 16898613353, 48, 48, 771, 955 },
+    ["gear"] = { 16898613777, 48, 48, 771, 257 },
+    ["ghost"] = { 16898613353, 48, 48, 869, 906 },
+    ["grid"] = { 16898613509, 48, 48, 918, 404 },
+    ["heart"] = { 16898613509, 48, 48, 661, 771 },
+    ["hitbox"] = { 16898613699, 48, 48, 967, 196 },
+    ["hourglass"] = { 16898613509, 48, 48, 49, 918 },
+    ["info"] = { 16898613509, 48, 48, 612, 869 },
+    ["jump"] = { 16898612629, 48, 48, 918, 306 },
+    ["keyboard"] = { 16898613509, 48, 48, 453, 820 },
+    ["layers"] = { 16898613509, 48, 48, 98, 967 },
+    ["link"] = { 16898613509, 48, 48, 918, 453 },
+    ["lock"] = { 16898613509, 48, 48, 918, 857 },
+    ["logout"] = { 16898613509, 48, 48, 820, 955 },
+    ["magnet"] = { 16898613509, 48, 48, 967, 906 },
+    ["minus"] = { 16898613613, 48, 48, 771, 196 },
+    ["noclip"] = { 16898612819, 48, 48, 820, 147 },
+    ["orbit"] = { 16898613613, 48, 48, 967, 612 },
+    ["palette"] = { 16898613613, 48, 48, 453, 918 },
+    ["pin"] = { 16898613613, 48, 48, 820, 257 },
+    ["plus"] = { 16898613699, 48, 48, 257, 918 },
+    ["power"] = { 16898613699, 48, 48, 820, 147 },
+    ["radar"] = { 16898613699, 48, 48, 820, 404 },
+    ["refresh"] = { 16898613699, 48, 48, 404, 869 },
+    ["search"] = { 16898613699, 48, 48, 918, 857 },
+    ["shield"] = { 16898613777, 48, 48, 869, 0 },
+    ["signal"] = { 16898613777, 48, 48, 918, 0 },
+    ["skull"] = { 16898613777, 48, 48, 49, 869 },
+    ["sliders"] = { 16898613777, 48, 48, 820, 355 },
+    ["sparkle"] = { 16898613777, 48, 48, 918, 49 },
+    ["star"] = { 16898613777, 48, 48, 967, 147 },
+    ["swords"] = { 16898613777, 48, 48, 967, 759 },
+    ["target"] = { 16898613044, 48, 48, 453, 869 },
+    ["teleport"] = { 16898613869, 48, 48, 771, 857 },
+    ["tracer"] = { 16898613509, 48, 48, 967, 759 },
+    ["user"] = { 16898613869, 48, 48, 661, 869 },
+    ["users"] = { 16898613869, 48, 48, 967, 98 },
+    ["wall"] = { 16898612819, 48, 48, 918, 306 },
+    ["wand"] = { 16898613869, 48, 48, 453, 918 },
 }
 end
 
@@ -1345,12 +1255,6 @@ function State.register(flag, control)
     State.controls[flag] = control
 end
 
---[[
-    Hand a flag back when the control behind it dies. Guarded on identity: a
-    reload builds the new card before the old tree is torn down, so an
-    unconditional clear would wipe the live registration and leave
-    Flow:Set("flag", v) pointing at nothing.
-]]
 function State.release(flag, control)
     if flag and State.controls[flag] == control then
         State.controls[flag] = nil
@@ -1454,9 +1358,6 @@ local function canWrite()
     return writefile ~= nil and readfile ~= nil and isfile ~= nil
 end
 
--- every one of these can throw rather than return false on a sandboxed or
--- permission-limited executor, and an unhandled throw here surfaces as a dead
--- Save button with no explanation
 local function ensureFolder()
     if not isfolder or not makefolder then
         return false
@@ -1471,8 +1372,6 @@ local function ensureFolder()
     end))
 end
 
--- config names reach the filesystem, so anything that could climb out of the
--- folder or break a path is stripped rather than trusted
 local function safeName(name)
     name = tostring(name or "default"):gsub("[^%w%-_ %.]", "")
     name = name:gsub("^%s+", ""):gsub("%s+$", ""):gsub("%.+$", "")
@@ -1610,42 +1509,20 @@ local base = {
 Theme.tokens = {}
 Theme.accent = rgb(124, 92, 255)
 Theme.radius = { window = 12, card = 10, control = 8, chip = 6, tile = 7 }
--- one left/right inset for every band inside a window: header, tab strip, card
--- lanes and footer. They drifted to 16, 18 and 18 and the 2px told.
+
 Theme.gutter = 14
 
---[[
-    The fixed bands a window is built from. These used to be literals scattered
-    across window.lua — a 72 here, a 121 and a 122 there, each one silently
-    derived from the two above it — so tightening the chrome meant finding all of
-    them and getting the arithmetic right by hand. One table, and `top` is the
-    y where the page starts.
-]]
 Theme.chrome = {}
 
---[[
-    Two densities.
-
-    `compact` is the desktop build: a mouse pointer is one pixel, so the only
-    limit on how tight the chrome gets is legibility.
-
-    `touch` exists because none of that holds on a phone. A fingertip covers
-    around 9mm, the interface is additionally scaled down to fit a small screen,
-    and 28px of tab strip at 0.8 scale is a 22px target — under half of what
-    every mobile guideline asks for. Touch mode buys the difference back on the
-    things that are actually pressed and leaves the rest alone.
-
-    Set before anything is built, so this is a table swap rather than a relayout.
-]]
 local densities = {
     compact = {
         header = 58,
         strip = 40,
         footer = 36,
-        -- the collapsed height of a module card, and the gap between cards and lanes
+
         card = 44,
         gap = 10,
-        -- press targets: tab button, header icon button, search field
+
         tab = 28,
         icon = 30,
         field = 30,
@@ -1685,9 +1562,6 @@ Theme.font = {
     bold = Font.new(family, Enum.FontWeight.Bold),
 }
 
--- instance -> { [property] = token }. Keyed by instance rather than kept as a
--- flat list so re-binding a property replaces the token instead of appending a
--- second entry that races the first.
 local bindings = {}
 local watchers = {}
 
@@ -1716,19 +1590,8 @@ function Theme.bind(inst, prop, token)
     if not props then
         props = {}
         bindings[inst] = props
-        --[[
-            Dropping the entry here is what keeps this table bounded. The sweep
-            in setAccent cannot do it: Roblox happily accepts a property write on
-            a destroyed instance, so the pcall around it never fails and nothing
-            was ever pruned. Every notification toast, overlay panel and tooltip
-            left its labels behind for the rest of the session, and each accent
-            change then had to walk all of them.
 
-            A weak-keyed table looks like the tidier fix but is wrong here: the
-            Lua handle for an instance is collectable while the instance is still
-            in the tree, so elements nothing else holds a reference to would
-            silently stop following the theme.
-        ]]
+
         inst.Destroying:Connect(function()
             bindings[inst] = nil
         end)
@@ -1738,8 +1601,6 @@ function Theme.bind(inst, prop, token)
     return inst
 end
 
--- point an existing binding at a different token. Writing the property directly
--- would hold only until the next accent change re-ran the binding list.
 function Theme.rebind(inst, prop, token)
     return Theme.bind(inst, prop, token)
 end
@@ -1780,12 +1641,6 @@ function Theme.setAccent(color)
     end
 end
 
---[[
-    Watchers only pruned themselves on the next accent change, because that is
-    the only thing that ever ran them. A session that never touches the accent —
-    most of them — kept every watcher from every reload. This runs the same prune
-    pass on demand and repaints nothing that is still alive.
-]]
 function Theme.sweep()
     local dropped = 0
     for inst in pairs(bindings) do
@@ -1935,16 +1790,6 @@ function Util.hover(button, target, idle, over, dur)
     end)
 end
 
---[[
-    Every draggable, slider and keybind used to open its own UserInputService
-    connection. A window with 20 modules meant ~100 global handlers firing on
-    every mouse move.
-
-    Now there is one engine connection per phase and components register into it.
-    Dragging and sliding go further: only one can be active at a time, so they
-    share a single handler and a single piece of state rather than one each.
-]]
-
 local hub = { began = {}, changed = {}, ended = {} }
 local wired = false
 
@@ -1971,7 +1816,6 @@ local function wire()
     end)
 end
 
--- Util.onInput("began" | "changed" | "ended", fn) -> disconnect
 function Util.onInput(phase, fn)
     wire()
     local list = hub[phase]
@@ -2076,14 +1920,6 @@ function Util.keyName(key)
     return "None"
 end
 
---[[
-    Where the interface lives decides whether a game can see it at all.
-
-    gethui() is the good case: a container game scripts cannot reach, since
-    CoreGui returns nil at LocalScript identity. protectgui + CoreGui is the
-    fallback. PlayerGui is the last resort and is fully visible to the game —
-    Util.protected is left false so callers can warn about it.
-]]
 Util.protected = false
 Util.host = "unknown"
 
@@ -2101,8 +1937,8 @@ function Util.root()
         return gui
     end
 
-    -- executors name the hidden container differently; any of them is the good
-    -- case, and only checking gethui threw away a working one
+
+
     for _, resolver in ipairs({
         gethui,
         get_hidden_gui,
@@ -2134,9 +1970,9 @@ function Util.root()
         gui.Parent = __service("CoreGui")
     end)
     if ok then
-        -- CoreGui is already out of a game script's reach: GetService("CoreGui")
-        -- returns nil at identity 2. protectgui hardens it further against other
-        -- elevated code, but its absence does not make this PlayerGui.
+
+
+
         Util.protected = true
         Util.host = protect and "coregui+protect" or "coregui"
         return gui
@@ -2144,8 +1980,8 @@ function Util.root()
 
     gui.Parent = __service("Players").LocalPlayer:WaitForChild("PlayerGui", 5)
     Util.host = "playergui"
-    -- last resort: the tree is readable here, so hide the root from the calls a
-    -- game script would use to find it
+
+
     Util.protected = Util.conceal(gui)
     if Util.protected then
         Util.host = "playergui+hooked"
@@ -2153,20 +1989,6 @@ function Util.root()
     return gui
 end
 
---[[
-    Concealment for executors that offer no hidden container.
-
-    In PlayerGui the interface is an ordinary ScreenGui the game can enumerate.
-    The root already carries a NUL-prefixed random name so it cannot be indexed,
-    but GetChildren and GetDescendants still hand it over. This filters it out of
-    the handful of calls a detection script actually uses.
-
-    Honest limits, because this is the weakest tier by definition:
-      - the hook itself is detectable by code that checksums __namecall
-      - it hides the instance, never the behaviour
-      - it only engages when the good paths are unavailable, so the common case
-        pays nothing for it
-]]
 local hidden = setmetatable({}, { __mode = "k" })
 
 local ENUMERATE = { GetChildren = true, GetDescendants = true }
@@ -2184,8 +2006,8 @@ local function isHidden(value)
     if hidden[value] then
         return true
     end
-    -- a descendant of the root gives it away just as well; the walk is bounded
-    -- by how shallow a ScreenGui tree is
+
+
     local node = value.Parent
     for _ = 1, 12 do
         if not node then
@@ -2217,9 +2039,9 @@ function Util.conceal(gui)
         old = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
             local method = getnamecallmethod()
 
-            -- the library walks its own tree constantly (tinting an icon, finding
-            -- a card's header). Filtering those calls would hide the interface
-            -- from itself, so only calls made from outside the root are censored.
+
+
+
             if (ENUMERATE[method] or LOOKUP[method]) and isHidden(self) then
                 return old(self, ...)
             end
@@ -2252,8 +2074,6 @@ function Util.conceal(gui)
     return ok
 end
 
--- touch with no keyboard is the reliable mobile signal; viewport width alone
--- misreads a small windowed desktop client
 function Util.isMobile()
     local touch = UserInputService.TouchEnabled
     local keyboard = UserInputService.KeyboardEnabled
@@ -2269,12 +2089,6 @@ function Util.viewport()
     return camera and camera.ViewportSize or Vector2.new(1280, 720)
 end
 
---[[
-    Binding to CurrentCamera once was not enough. The engine replaces the camera
-    on respawn and on anything that scripts a cutscene, and the old connection
-    goes with it — so a phone that rotated after dying never re-fitted and the
-    window stayed clipped off the edge of the screen. Follow the swap instead.
-]]
 function Util.onViewport(fn)
     local workspace = __service("Workspace")
     local bound
@@ -2319,18 +2133,6 @@ function Util.inset()
     return ok and gap or 36
 end
 
---[[
-    The only per-frame connection in the library, so it is worth it being cheap
-    and worth it stopping.
-
-    It used to keep a growing list of frame times and `table.remove(samples, 1)`
-    the front off it every frame — an O(n) shift, sixty times a second, forever,
-    because the connection was never handed back and never disconnected. A
-    watermark that had been destroyed an hour ago was still sampling.
-
-    Now it is a counter and a window: two adds and a compare per frame, and the
-    caller gets a stop function.
-]]
 function Util.fps()
     local frames, elapsed = 0, 0
     local value = 60
@@ -2364,15 +2166,6 @@ function Util.ping()
     end
 end
 
---[[
-    GetUserThumbnailAsync is a yielding web request. The player list called it for
-    every row on every refresh — eight round trips a second, forever — which is
-    the single most expensive thing the library used to do.
-
-    rbxthumb:// is the content-url form of the same image: the engine resolves and
-    caches it itself, no API call and no yield. The result is memoised anyway so a
-    row that redraws does not even rebuild the string.
-]]
 local thumbs = {}
 
 function Util.thumbnail(userId, size)
@@ -2439,8 +2232,8 @@ function Keybinds:Sync()
         end
     end
 
-    -- a keybind added as a control rather than on a module header still belongs
-    -- on this list; without it a script's binds are invisible
+
+
     for _, entry in ipairs(self.binds) do
         local key = entry.Control and entry.Control.Value or entry.Bind
         if key then
@@ -2533,8 +2326,8 @@ function Notify.push(opts)
     local edge = Util.stroke(card, Theme.get("line"), 1, 0.2)
     Theme.bind(edge, "Color", "line")
 
-    -- scale is what makes the entrance feel like it arrives rather than slides;
-    -- it animates alongside position and fade
+
+
     local scale = Util.new("UIScale", { Scale = 0.92, Parent = card })
 
     local inner = Craft.frame({
@@ -2611,7 +2404,7 @@ function Notify.push(opts)
     local life = opts.Duration or 4
     local dying = false
 
-    -- entrance: fade, glide and settle at once
+
     Util.tween(card, { GroupTransparency = 0, Position = UDim2.fromOffset(0, 0) }, Util.ease.glide)
     Util.tween(scale, { Scale = 1 }, TweenInfo.new(0.42, Enum.EasingStyle.Back, Enum.EasingDirection.Out))
 
@@ -2628,7 +2421,7 @@ function Notify.push(opts)
         Util.tween(card, { GroupTransparency = 1, Position = UDim2.fromOffset(44, 0) }, exit)
         Util.tween(scale, { Scale = 0.94 }, exit)
 
-        -- collapse the footprint so toasts below glide up instead of snapping
+
         task.delay(0.16, function()
             if card.Parent then
                 card.AutomaticSize = Enum.AutomaticSize.None
@@ -2644,7 +2437,7 @@ function Notify.push(opts)
         end)
     end
 
-    -- hovering holds the toast open, so a long message can actually be read
+
     local hover = Craft.button({
         Name = "Hit",
         BackgroundTransparency = 1,
@@ -2872,8 +2665,8 @@ function Panel.new(props)
         LayoutOrder = 2,
         Parent = frame,
     })
-    -- callers tune spacing through props; a second UIPadding or UIListLayout on the
-    -- same frame fights the first one, so the body only ever gets these
+
+
     Util.list(body, props.Gap or 0)
     Util.pad(body, props.PadTop or 5, props.PadX or 0, props.PadBottom or 6, props.PadX or 0)
     self.Body = body
@@ -3004,8 +2797,8 @@ function Stats.new(props)
         local interval = props.Interval or 1
         task.spawn(function()
             while self.alive do
-                -- a panel the user has switched off still ran a full distance
-                -- sort against every player in the server, once a second
+
+
                 if not self.Hidden then
                     self:Sync()
                 end
@@ -3017,7 +2810,6 @@ function Stats.new(props)
     return self
 end
 
--- one line: avatar, display name, right-aligned readout
 function Stats:Row(props)
     local row = Craft.frame({
         Name = "",
@@ -3093,15 +2885,6 @@ function Stats:Clear()
     table.clear(self.rows)
 end
 
---[[
-    Nearest players first, distance in studs.
-
-    This used to Clear() and rebuild: every row destroyed and re-created once a
-    second, eight instances apiece, each one firing off a yielding thumbnail
-    request. Rows are kept and rewritten now, and the ones past the end of the
-    list are hidden rather than destroyed — so a steady server costs a sort and a
-    handful of string writes, and nothing is allocated at all.
-]]
 function Stats:Sync()
     local hrp = rootOf(lp)
     local found = self.scratch or {}
@@ -3295,9 +3078,9 @@ function Target.new(props)
 
     self.alive = true
 
-    -- both loops used to run flat out whether or not the widget was on screen.
-    -- Pick walks every player in the server and Paint runs ten times a second,
-    -- so a hidden target readout was costing more than most visible ones.
+
+
+
     task.spawn(function()
         while self.alive do
             if self.auto and not self.Hidden then
@@ -3415,8 +3198,6 @@ local Craft = require("core/craft")
 local Icons = require("core/icons")
 local Panel = require("hud/panel")
 
--- A pill that opens and closes the menu, so the interface is reachable without
--- knowing the keybind. Sits top centre by default and is draggable.
 local Trigger = {}
 Trigger.__index = Trigger
 
@@ -3435,7 +3216,7 @@ function Trigger.new(props)
     })
     self.Frame = frame
 
-    -- the pill auto-sizes, so centre it once its real width is known
+
     if not props.Position then
         task.defer(function()
             if frame.Parent then
@@ -3462,7 +3243,7 @@ function Trigger.new(props)
     Util.pad(row, 0, 12, 0, 9)
     Util.list(row, 9, Enum.FillDirection.Horizontal, Enum.HorizontalAlignment.Left, Enum.VerticalAlignment.Center)
 
-    -- bare logo, matching the window header rather than sitting in a tile
+
     local markName = props.Mark or "brand"
     local mark = Craft.frame({
         Name = "Mark",
@@ -3505,8 +3286,8 @@ function Trigger.new(props)
     })
     self.Caret = Icons.draw({ Icon = "chevron-down", Size = 15, Token = "textDim", ZIndex = 5, Parent = caretCell })
 
-    -- count of enabled modules: on mobile this pill is the only always-visible
-    -- surface, so it carries the one number worth glancing at
+
+
     self.Badge = Craft.frame({
         Name = "Badge",
         Token = "accent",
@@ -3532,7 +3313,7 @@ function Trigger.new(props)
 
     Util.hover(button, frame, { BackgroundTransparency = 0.12 }, { BackgroundTransparency = 0 })
 
-    -- a drag should move the pill, not fire the toggle
+
     local moved, downAt = false, nil
     button.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
@@ -3574,7 +3355,6 @@ function Trigger:Paint()
     Icons.tint(self.Caret, self.open and Theme.get("accent") or Theme.get("textDim"))
 end
 
--- n enabled modules; hides itself at zero so an idle menu stays clean
 function Trigger:SetCount(n)
     n = tonumber(n) or 0
     local show = n > 0
@@ -3775,9 +3555,9 @@ function Watermark.new(props)
     local playerValue, playerUnit = stat("users", 8)
     playerUnit.Text = "players"
 
-    -- the sampler is the library's only RenderStepped connection, so hold on to
-    -- the stop function: without it a destroyed watermark kept sampling for the
-    -- rest of the session, and every reload of the script added another one
+
+
+
     local readFps, stopFps = Util.fps()
     local readPing = Util.ping()
     self.stopFps = stopFps
@@ -3803,8 +3583,8 @@ function Watermark.new(props)
         end
     end)
 
-    -- pinned by default so it keeps its clearance from the Roblox topbar;
-    -- pass Draggable = true to let it be moved
+
+
     self.Fixed = not props.Draggable
     if props.Draggable then
         Util.drag(frame, frame, props.OnMove)
@@ -3867,10 +3647,8 @@ Flow.Controls = Controls
 Flow.Luarmor = Luarmor
 Flow.Audio = Audio
 
--- false means the interface landed in PlayerGui and the game can enumerate it
 Flow.Protected = false
 
--- display name and order for the HUD toggles in the settings popup
 local HUD_META = {
     trigger = { Label = "Menu button", Order = 1 },
     watermark = { Label = "Watermark", Order = 2 },
@@ -3903,20 +3681,16 @@ function Flow.new(opts)
     local self = setmetatable({}, Flow)
 
     self.modules = {}
-    -- standalone keybind controls (a control, not a module) so the Keybinds
-    -- panel can list them too
+
+
     self.binds = {}
     self.windows = {}
     self.hud = {}
     self.menuKey = opts.Key or Enum.KeyCode.RightShift
     self.configName = "default"
 
-    --[[
-        Density is picked before a single instance is built, because every fixed
-        height in the library reads Theme.chrome at construction time. Auto by
-        default; pass Density = "compact" to keep the desktop metrics on a phone,
-        or "touch" to force the bigger targets on a desktop with a touchscreen.
-    ]]
+
+
     local density = opts.Density
     if density == nil then
         density = Util.isMobile() and "touch" or "compact"
@@ -3932,7 +3706,7 @@ function Flow.new(opts)
     if opts.Sound ~= nil then
         Audio.enabled = opts.Sound and true or false
     end
-    -- true for a 2s toast, or a number for a custom duration
+
     self.notifyToggles = opts.NotifyToggles
     if opts.Volume then
         Audio.volume = opts.Volume
@@ -3989,24 +3763,14 @@ function Flow:Window(opts)
     return window
 end
 
---[[
-    One place that reacts to the viewport: interface scale on small screens, then
-    every window re-fits and folds its columns. Runs on creation and on any
-    viewport change, so rotating a phone lands correctly instead of clipping.
-]]
 function Flow:Fit()
     local viewport = Util.viewport()
     local mobile = Util.isMobile()
 
     local scale = self.userScale or 1
     if mobile then
-        --[[
-            The floor was 0.65, which is where the interface stopped being
-            usable: a 21px switch came out at 13px of glass, under a third of a
-            fingertip. Windows already clamp their own width to the viewport, so
-            scaling this far down was never what made things fit — it only ever
-            made them small. 0.8 keeps text legible and targets pressable.
-        ]]
+
+
         scale = scale * Util.clamp(viewport.X / 1000, 0.8, 1)
     end
     self.scale.Scale = scale
@@ -4032,7 +3796,7 @@ function Flow:Keybinds(opts)
     opts.Parent = self.layers.hud
     opts.Modules = self.modules
     opts.Binds = self.binds
-    -- bottom right, growing upward as binds are added
+
     opts.Position = opts.Position or UDim2.new(1, -18, 1, -18)
     opts.AnchorPoint = opts.AnchorPoint or Vector2.new(1, 1)
     return register(self, "keybinds", Keybinds.new(opts))
@@ -4055,8 +3819,8 @@ end
 function Flow:Trigger(opts)
     opts = opts or {}
     opts.Parent = self.layers.hud
-    -- flush to the very top of the screen; the ScreenGui ignores the GUI inset,
-    -- so this is the real top edge, and top-centre is clear of the Roblox topbar
+
+
     opts.Top = opts.Top or 6
     opts.OnToggle = function(open)
         self:ToggleMenu(open)
@@ -4064,8 +3828,6 @@ function Flow:Trigger(opts)
     return register(self, "trigger", Trigger.new(opts))
 end
 
--- single entry point for opening/closing, so the keybind and the pill agree
--- every registered HUD widget, in a stable order
 function Flow:HudWidgets()
     local out = {}
     for _, widget in pairs(self.hud) do
@@ -4112,7 +3874,7 @@ function Flow:announce(card, enabled)
         self.hud.keybinds:Sync()
     end
 
-    -- opt-in, because twenty modules means twenty toasts if you are not careful
+
     if self.notifyToggles then
         Notify.push({
             Title = card.Name,
@@ -4247,17 +4009,6 @@ function Flow:Unload()
     self:Destroy()
 end
 
---[[
-    A script is re-executed constantly, so unloading has to leave nothing behind
-    at all. What used to survive: the watermark's RenderStepped sampler, every
-    card's two engine-wide input handlers, the flag registry pointing at dead
-    controls, and the theme watcher list. None of it was visible — the tree was
-    gone — but it all still ran, and it all stacked up reload after reload.
-
-    Destroying the root first is deliberate: cards and controls release their own
-    handlers off Destroying, so by the time the sweep runs the lists are already
-    correct and it only has to catch what has no owner.
-]]
 function Flow:Destroy()
     if self.listener then
         self.listener()
@@ -4290,10 +4041,6 @@ setmetatable(Flow, {
     end,
 })
 
--- Scripts written against the previous library reach it as
--- `loadstring(game:HttpGet(url))().Legacy`. Deliberately not folded into
--- Flow.new: both APIs take a single options table, and telling them apart by
--- sniffing keys would be a guess.
 Flow.Legacy = require("ui/legacy")(Flow)
 
 return Flow
@@ -4329,8 +4076,8 @@ function Card.new(tab, opts)
     self.controls = {}
 
     local root = Craft.frame({
-        -- deliberately unnamed: on an executor without gethui the tree ends up in
-        -- PlayerGui, and "Silent Aim" in the hierarchy is a free confession
+
+
         Name = "",
         Token = "surface",
         Radius = Theme.radius.card,
@@ -4510,15 +4257,8 @@ function Card.new(tab, opts)
         end
     end)
 
-    --[[
-        These two are engine-wide handlers, and nothing used to take them back.
-        A script that reloads twenty times — which is the whole executor
-        workflow — left forty dead cards listening on every key press, each one
-        reaching into a destroyed frame.
 
-        Destroying is the right hook rather than an explicit Destroy call: it
-        fires however the card dies, including Root:Destroy() on unload.
-    ]]
+
     root.Destroying:Connect(function()
         self.holdBegan()
         self.holdEnded()
@@ -4548,7 +4288,6 @@ function Card.new(tab, opts)
     return self
 end
 
--- right-clicking the keybind chip: pick how the key behaves, rebind it, or clear it
 function Card:BindMenu(anchor, chip)
     Overlay.toggle({
         Key = anchor,
@@ -4628,7 +4367,7 @@ function Card:BindMenu(anchor, chip)
 
                 button.MouseButton1Click:Connect(function()
                     self.BindMode = mode
-                    -- leaving hold mode with the key down would strand the module on
+
                     if mode == "Toggle" and self.Enabled and self.heldOn then
                         self.heldOn = false
                     end
@@ -4684,7 +4423,7 @@ end
 function Card:Set(value, fromSwitch)
     self.Enabled = value and true or false
     if not fromSwitch then
-        -- the switch only makes noise when clicked, so a keybind toggle speaks here
+
         self.Switch:Set(self.Enabled, true)
         Audio.play(self.Enabled and "on" or "off")
     end
@@ -4712,8 +4451,6 @@ function Card:Expand(open)
     Util.tween(self.Caret, { Rotation = self.Expanded and 180 or 0 }, Util.ease.out)
 end
 
--- the chevron is the only hint that a card opens, so it appears the moment the
--- card gains its first control and hides again if it has none
 function Card:refresh()
     self.expandable = #self.controls > 0
     self.CaretCell.Visible = self.expandable
@@ -4900,7 +4637,7 @@ end
 function Controls.switch(parent, opts)
     opts = opts or {}
     local control = { Value = opts.Default and true or false }
-    -- the most-pressed control in the library, so it follows the touch density
+
     local metric = Theme.chrome.switch
     local width = opts.Width or metric.X
     local height = opts.Height or metric.Y
@@ -4962,7 +4699,7 @@ function Controls.toggle(parent, opts)
     local control = {}
     local root = shell(parent, opts, true)
     local head = Craft.head({ Name = opts.Name, Desc = opts.Desc, Parent = root })
-    -- clear the switch plus a thumb's worth of gap, whatever density is running
+
     head.Size = UDim2.new(1, -(Theme.chrome.switch.X + 16), 0, 0)
 
     local switch = Controls.switch(root, {
@@ -5094,8 +4831,8 @@ function Controls.slider(parent, opts)
         readoutText.Text = Util.format(control.Value, step) .. (opts.Suffix or "")
     end
 
-    -- one detent per step, pitched up as the value rises, throttled so a long
-    -- drag across a 2000-wide range does not machine-gun
+
+
     local lastTick = 0
     local function detent()
         local now = os.clock()
@@ -5245,7 +4982,6 @@ function Controls.segmented(parent, opts)
     return control
 end
 
--- a row of round icon buttons; the live one carries an accent ring
 function Controls.iconpicker(parent, opts)
     opts = opts or {}
 
@@ -5325,10 +5061,6 @@ function Controls.iconpicker(parent, opts)
     return control
 end
 
--- `options` is the list the caller declared. Reading the selection back in that
--- order keeps the caption agreeing with the rows in the open panel; sorting it
--- alphabetically instead turned { Players, NPCs } into "NPCs, Players" and threw
--- away the priority the caller chose.
 local function joinValues(value, empty, options, limit)
     if typeof(value) == "table" then
         local picked = {}
@@ -5338,7 +5070,7 @@ local function joinValues(value, empty, options, limit)
                     table.insert(picked, option)
                 end
             end
-            -- a flag can carry a value that is no longer in Options; still show it
+
             for k, v in pairs(value) do
                 if v == true and not table.find(picked, k) then
                     table.insert(picked, k)
@@ -5357,8 +5089,8 @@ local function joinValues(value, empty, options, limit)
             return empty or "None"
         end
 
-        -- past a few names the row truncates mid-word, which reads as a glitch;
-        -- a count is shorter and says how much is hidden
+
+
         limit = limit or 3
         if #picked > limit then
             local head = table.move(picked, 1, limit, 1, {})
@@ -5541,7 +5273,7 @@ function Controls.buttons(parent, opts)
     local gap = 6
     Util.list(row, gap, Enum.FillDirection.Horizontal)
 
-    -- an optional round accent button pinned to the end of the row
+
     local trail = opts.Trailing
     local trailSize = trail and (opts.Height or 32) or 0
     local reserve = trail and (trailSize + gap) or 0
@@ -5713,16 +5445,8 @@ function Controls.keybind(parent, opts)
     local control = { Value = opts.Default }
     local capturing = false
 
-    --[[
-        Drawn as a key cap rather than a text pill: a hairline edge so it reads
-        as a physical key against the card, and padding that widens for a single
-        character so "B" is a square cap instead of a sliver next to "MB3".
 
-        The padding is what sets the width, not a UISizeConstraint. A minimum
-        width leaves the label parked against the left inset with the whole
-        remainder banked up on the right, which is exactly the lopsided cap this
-        replaces.
-    ]]
+
     local holder = Craft.button({
         Name = "Keybind",
         Token = "raised",
@@ -5758,14 +5482,14 @@ function Controls.keybind(parent, opts)
         label.Text = Util.keyName(key)
         label.TextColor3 = key and Theme.get("text") or Theme.get("textFaint")
 
-        -- a lone letter gets a wider inset on both sides, so the cap is square
-        -- rather than a sliver, and the glyph stays centred either way
+
+
         local wide = utf8.len(label.Text) == 1 and 11 or 8
         inset.PaddingLeft = UDim.new(0, wide)
         inset.PaddingRight = UDim.new(0, wide)
 
-        -- an unbound chip carried the same fill as a bound one, so a row of them
-        -- read as "MB3, V, None, B" all at equal weight; empty ones now recede
+
+
         holder.BackgroundTransparency = key and 0 or 0.6
         local edge = holder:FindFirstChildOfClass("UIStroke")
         if edge then
@@ -5783,7 +5507,7 @@ function Controls.keybind(parent, opts)
         capturing = true
         label.Text = "..."
         label.TextColor3 = Theme.get("accent")
-        -- waiting for a key is an active state even from an empty chip
+
         holder.BackgroundTransparency = 0
         local edge = holder:FindFirstChildOfClass("UIStroke")
         if edge then
@@ -5795,13 +5519,13 @@ function Controls.keybind(parent, opts)
         control:Capture()
     end)
 
-    -- right click clears the bind unless the caller wants its own menu there
+
     holder.MouseButton2Click:Connect(function()
         local wasCapturing = capturing
         capturing = false
         if opts.OnRightClick then
-            -- the chip is left mid-capture otherwise: still reading "..." with no
-            -- listener behind it, since the menu takes over from here
+
+
             if wasCapturing then
                 control:Set(control.Value, true)
             end
@@ -6277,7 +6001,7 @@ function Overlay.open(opts)
         Overlay.close()
     end)
 
-    -- escape dismisses whatever is open, the way a desktop menu would
+
     local escape = Util.onInput("began", function(input, typing)
         if not typing and input.KeyCode == Enum.KeyCode.Escape then
             Overlay.close()
@@ -6353,15 +6077,15 @@ function Tab.new(window, opts)
         Size = UDim2.fromScale(1, 1),
         Parent = page,
     })
-    -- Theme.gutter, not a local guess: the header, the tab strip and these lanes
-    -- all start at the same x, so the left edge of a card lines up with the logo
-    -- and the first tab. They used to sit at 16, 18 and 18.
+
+
+
     local padLeft, padRight = Theme.gutter, Theme.gutter
     local padTop, padBottom = 12, 14
     Util.pad(scroller, padTop, padRight, padBottom, padLeft)
     self.Scroller = scroller
-    -- what the page costs on top of the lanes themselves, so Window:Resize can
-    -- turn a lane height into a window height
+
+
     self.pageInset = padTop + padBottom
 
     local gap = Theme.chrome.gap
@@ -6394,20 +6118,20 @@ function Tab.new(window, opts)
     self.active = count
     self.spread = count
 
-    -- cards expanding, a filter hiding half of them, a lane rebalance: all of it
-    -- lands here as a lane height change, and the window follows it
-    -- no tween: a card expanding is already animating its own height, so setting
-    -- the window directly makes the frame grow in lockstep with the card instead
-    -- of chasing it a beat behind
+
+
+
+
+
     lanes:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
         if window.active == self then
             window:Resize(false)
         end
     end)
 
-    -- Tabs are laid out as: [divider] [tab] [divider] [tab] ... so each one owns a
-    -- padded footprint with a hairline between neighbours. Explicit LayoutOrder
-    -- keeps that interleaving stable.
+
+
+
     local slot = (#window.tabs + 1) * 10
 
     if #window.tabs > 0 then
@@ -6471,8 +6195,8 @@ function Tab.new(window, opts)
         window:Select(self)
     end)
 
-    -- inactive tabs had no hover feedback at all; now they lift toward the
-    -- active colour so the strip feels clickable
+
+
     button.MouseEnter:Connect(function()
         self.hot = true
         self:Paint()
@@ -6496,9 +6220,9 @@ end
 function Tab:Module(opts)
     self.slot = self.slot + 1
     opts.LayoutOrder = self.slot
-    -- Balance settles this properly a frame or two later; the point of picking a
-    -- lane now is only that the card is never parented to a folded-away one and
-    -- flickers out of sight until then
+
+
+
     local lanes = math.clamp(self.spread or #self.columns, 1, #self.columns)
     local pick = opts.Column and math.min(opts.Column, lanes) or ((self.slot - 1) % lanes + 1)
     opts.Parent = self.columns[pick]
@@ -6510,9 +6234,6 @@ function Tab:Module(opts)
     return card
 end
 
--- lane widths are set here and nowhere else, so the two things that decide them
--- can't disagree: how wide the window is (Reflow) and how many cards there are
--- to fill them (Balance)
 function Tab:Spread(count)
     count = math.clamp(count, 1, #self.columns)
     if self.spread == count then
@@ -6526,8 +6247,6 @@ function Tab:Spread(count)
     end
 end
 
--- narrow screens fold the card lanes down rather than squeezing three columns
--- into an unreadable width
 function Tab:Reflow(count)
     count = math.clamp(count, 1, #self.columns)
     if self.active == count then
@@ -6545,10 +6264,10 @@ function Tab:Balance()
             return
         end
         local room = self.active or #self.columns
-        -- a three-column tab holding two modules used to draw them a third of the
-        -- way across and leave the last lane blank. Fold to the number of cards
-        -- instead, but never past two: one module stretched over a whole window
-        -- is a row of very lonely toggles.
+
+
+
+
         local lanes = math.clamp(#self.cards, math.min(2, room), room)
         self:Spread(lanes)
         local gap = self.gap or Theme.chrome.gap
@@ -6589,7 +6308,6 @@ function Tab:Filter(query)
     return hits
 end
 
--- single source of truth for tab colour: active beats hover beats idle
 function Tab:Paint()
     local live = self.window.active == self
     local label = live and Theme.get("text") or (self.hot and Theme.get("textDim") or Theme.get("textFaint"))
@@ -6605,8 +6323,8 @@ function Tab:Show()
     self.Page.Position = UDim2.fromOffset(0, 8)
     Util.tween(self.Page, { GroupTransparency = 0, Position = UDim2.fromOffset(0, 0) }, Util.ease.glide)
     self:Paint()
-    -- tabs are rarely the same length, so the window has to re-measure on a swap
-    -- rather than keep whatever the last one asked for
+
+
     self.window:Resize()
 end
 
@@ -6683,8 +6401,8 @@ function Window.new(flow, opts)
     local size = opts.Size or UDim2.fromOffset(900, 580)
     self.wanted = Vector2.new(size.X.Offset, size.Y.Offset)
     self.minColumns = opts.MinColumns or 1
-    -- Size is a ceiling, not a fixed height: the window ends where the page it is
-    -- showing ends. AutoHeight = false pins it to the ceiling instead.
+
+
     self.autoHeight = opts.AutoHeight ~= false
     self.chromeTop = Theme.chrome.top
     self.footerHeight = 0
@@ -6744,7 +6462,7 @@ function Window.new(flow, opts)
     Craft.frame({
         Name = "Rule",
         Token = "lineSoft",
-        -- bleeds back out through the padding to stop 2px short of each edge
+
         Size = UDim2.new(1, Theme.gutter * 2 - 4, 0, 1),
         Position = UDim2.new(0, -Theme.gutter + 2, 1, 0),
         AnchorPoint = Vector2.new(0, 1),
@@ -6766,8 +6484,8 @@ function Window.new(flow, opts)
     local mark
 
     if Icons.images[markName] then
-        -- a logo already reads as its own shape, so it sits bare rather than in a
-        -- tile; ScaleType.Fit keeps it square inside the cell whatever its aspect
+
+
         mark = Craft.frame({
             Name = "Mark",
             BackgroundTransparency = 1,
@@ -6819,7 +6537,7 @@ function Window.new(flow, opts)
         ZIndex = 6,
         Parent = words,
     })
-    -- the strap under the title is opt-in; nothing is drawn unless Build is given
+
     if opts.Build then
         local buildRow = Craft.frame({
             Name = "BuildRow",
@@ -6931,6 +6649,7 @@ function Window.new(flow, opts)
     Util.pad(account, 0, 7, 0, 4)
     Theme.bind(account, "BackgroundColor3", "surfaceAlt")
     Util.hover(account, account, { BackgroundTransparency = 1 }, { BackgroundTransparency = 0 })
+    account.Visible = false
 
     local accountRow = Craft.frame({
         BackgroundTransparency = 1,
@@ -6978,8 +6697,8 @@ function Window.new(flow, opts)
     })
     self.PlanLabel = Craft.text({
         Text = opts.Tag or Luarmor.plan(),
-        -- premium wears the accent, free wears green; set here as well as in
-        -- RefreshPlan so the tag never changes colour on the first profile open
+
+
         Token = Luarmor.isPremium() and "accent" or "success",
         TextSize = 10.5,
         FontFace = Theme.font.semi,
@@ -6988,7 +6707,7 @@ function Window.new(flow, opts)
         ZIndex = 8,
         Parent = names,
     })
-    -- an explicit Tag is the caller's to own; otherwise the plan tracks the key
+
     self.PlanFixed = opts.Tag ~= nil
 
     local caret = Craft.frame({
@@ -7000,18 +6719,8 @@ function Window.new(flow, opts)
     })
     Icons.draw({ Icon = "chevron-down", Size = 11, Token = "textFaint", ZIndex = 8, Parent = caret })
 
-    --[[
-        The strip scrolls horizontally. A window fits about nine tabs across, and
-        a plain frame simply drew the rest past its own edge where they could
-        never be clicked. The scrollbar is hidden — it would land on the rule
-        below — so the strip is driven by wheel and drag, and Window:Reveal
-        brings a selected tab into view.
 
-        A hidden scrollbar and a mouse wheel are both desktop assumptions, and a
-        phone has neither: nothing said there were more tabs and nothing but a
-        lucky swipe would reach them. Window:Rail adds an arrow at each end that
-        appears only when there is something past it — see below.
-    ]]
+
     local strip = Craft.scroll({
         Name = "Strip",
         BackgroundTransparency = 1,
@@ -7030,8 +6739,8 @@ function Window.new(flow, opts)
     Util.list(strip, 6, Enum.FillDirection.Horizontal, Enum.HorizontalAlignment.Left, Enum.VerticalAlignment.Center)
     self.Strip = strip
 
-    -- the marker sits outside the strip, so scrolling has to drag it along or it
-    -- would drift away from the tab it belongs to
+
+
     strip:GetPropertyChangedSignal("CanvasPosition"):Connect(function()
         if self.active then
             self:Mark(self.active, false)
@@ -7095,22 +6804,11 @@ function Window.new(flow, opts)
         Notify.panel(bell)
     end)
 
-    self.Account = { Name = opts.User or lp.DisplayName, Tag = opts.Tag or Luarmor.plan() }
+    self.Account = { Name = opts.User or lp.DisplayName, Tag = opts.Tag or "Phrog Hub" }
 
     return self
 end
 
---[[
-    A bar across the bottom of the window: who made it, where the connection is,
-    and a way out to a community. Purely cosmetic, but a sparse tab leaves a lot
-    of empty surface and a hub with nothing along the bottom reads unfinished.
-
-    Every slot is optional and nothing is drawn for one that is not configured.
-]]
-
--- Region comes from a public IP lookup, which means two things worth knowing:
--- it geolocates whoever is RUNNING the script, not the Roblox server, and it
--- hands their IP to a third party. Pass a plain string instead to skip both.
 local function lookupRegion(done)
     task.spawn(function()
         local ok, body = pcall(function()
@@ -7162,14 +6860,14 @@ function Window:Footer(opts)
         Parent = bar,
     })
 
-    -- pages stop above the bar rather than scrolling underneath it
+
     self.footerHeight = height
     self.Body.Size = UDim2.new(1, 0, 1, -(self.chromeTop + height))
     self:Resize(false)
 
-    ----------------------------------------------------------------------------
-    -- left: sticker + credit
-    ----------------------------------------------------------------------------
+
+
+
 
     local left = Craft.frame({
         Name = "Credit",
@@ -7189,8 +6887,8 @@ function Window:Footer(opts)
         end
         return Craft.text({
             Name = "Sticker",
-            -- BuilderSans has no glyph for these, so the engine falls back to its
-            -- emoji font: a text label, not an icon
+
+
             Text = opts.Emoji,
             TextSize = 15,
             AutomaticSize = Enum.AutomaticSize.X,
@@ -7203,9 +6901,9 @@ function Window:Footer(opts)
 
     if opts.Sticker then
         local size = opts.StickerSize or 24
-        -- the usual thing to put here is a profile picture, so it is cropped to
-        -- a circle by default. StickerRound = false leaves a fitted square for a
-        -- transparent sticker that should not lose its corners.
+
+
+
         local round = opts.StickerRound ~= false
         local image = Util.new("ImageLabel", {
             Name = "Sticker",
@@ -7221,8 +6919,8 @@ function Window:Footer(opts)
             Util.corner(image, UDim.new(1, 0))
         end
 
-        -- an id that is still in moderation, private, or simply wrong resolves to
-        -- nothing and leaves a hole in the row. Fall back to the emoji instead.
+
+
         task.spawn(function()
             pcall(function()
                 __service("ContentProvider"):PreloadAsync({ image })
@@ -7251,9 +6949,9 @@ function Window:Footer(opts)
         })
     end
 
-    ----------------------------------------------------------------------------
-    -- right: region readout + link out
-    ----------------------------------------------------------------------------
+
+
+
 
     local right = Craft.frame({
         Name = "Links",
@@ -7279,8 +6977,8 @@ function Window:Footer(opts)
         })
         Util.list(row, 5, Enum.FillDirection.Horizontal, Enum.HorizontalAlignment.Left, Enum.VerticalAlignment.Center)
 
-        -- Icons.draw centres itself by default, which a list layout then shifts
-        -- by half its own size; anchoring at the corner puts it back
+
+
         local mark = Icons.draw({
             Icon = "signal",
             Size = 12,
@@ -7314,8 +7012,8 @@ function Window:Footer(opts)
     end
 
     if opts.Discord then
-        -- an invite is a link to follow, a username is a name to add: show the
-        -- name itself rather than hiding it behind the word "Discord"
+
+
         local invite = opts.Discord:match("^https?://") ~= nil or opts.Discord:match("discord%.gg/") ~= nil
         local label = opts.DiscordLabel or (invite and "Discord" or opts.Discord)
 
@@ -7332,8 +7030,8 @@ function Window:Footer(opts)
         })
         Util.pad(button, 0, 11, 0, 11)
 
-        -- no icon: the name is the label, and a glyph in front of it only
-        -- repeated what the text already said
+
+
         Craft.text({
             Name = "Value",
             Text = label,
@@ -7348,8 +7046,8 @@ function Window:Footer(opts)
 
         Util.hover(button, button, { BackgroundColor3 = Theme.get("surfaceAlt") }, { BackgroundColor3 = Theme.get("raised") })
 
-        -- opening a browser is not something a UI library should do behind the
-        -- user's back, so the invite goes to the clipboard and says so
+
+
         button.MouseButton1Click:Connect(function()
             Audio.play("click")
             local copied = setclipboard ~= nil and pcall(setclipboard, opts.Discord)
@@ -7366,15 +7064,6 @@ function Window:Footer(opts)
     return bar
 end
 
---[[
-    The window is exactly as tall as the page it is showing, up to the ceiling
-    Fit worked out from Size and the viewport. A tab with two cards used to draw
-    them into the top corner of a 680px frame and leave the rest empty; now the
-    frame ends where the cards do, and a tab with more than fits scrolls.
-
-    Nothing here touches width — lanes are fractional, so a narrower window would
-    only make the cards narrower, not the layout tighter.
-]]
 function Window:Resize(animate)
     local height = self.room
 
@@ -7382,11 +7071,11 @@ function Window:Resize(animate)
         local tab = self.active
         local lanes = tab and tab.Lanes
         if lanes then
-            -- AbsoluteSize is in screen pixels, so undo the interface scale to get
-            -- back to the offsets the window is actually built in
+
+
             local k = math.max(self.flow.scale.Scale, 0.01)
             local chrome = self.chromeTop + self.footerHeight + (tab.pageInset or 0)
-            -- a tab with nothing in it still needs somewhere to say so
+
             local least = math.min(chrome + 90, self.room)
             height = math.clamp(lanes.AbsoluteSize.Y / k + chrome, least, self.room)
         end
@@ -7405,9 +7094,9 @@ function Window:Resize(animate)
         return
     end
 
-    -- a plain assignment loses to a tween that is still running, and the window
-    -- ends up wherever the stale one was headed. Every size change goes through
-    -- here so there is exactly one to cancel.
+
+
+
     if self.sizeTween then
         self.sizeTween:Cancel()
         self.sizeTween = nil
@@ -7419,14 +7108,6 @@ function Window:Resize(animate)
     end
 end
 
---[[
-    The header is two independently anchored halves: the brand on the left, the
-    actions on the right. Neither knew how much room the other needed, so on a
-    phone the search field simply drew straight over the logo.
-
-    Three tiers, widest first. The account avatar, the bell and the gear survive
-    all of them — they are the ones that are actually pressed.
-]]
 function Window:Compress(width)
     local tier = (width < 470 and 2) or (width < 640 and 1) or 0
     if self.tier == tier then
@@ -7447,16 +7128,14 @@ function Window:Compress(width)
         else
             self.SearchBox.Size = UDim2.fromOffset(self.SearchWidth or 200, Theme.chrome.field)
         end
-        -- a hidden field that still holds a query would filter every tab with no
-        -- way to see or clear it
+
+
         if tier == 2 and self.Search and self.Search.Text ~= "" then
             self.Search.Text = ""
         end
     end
 end
 
--- Keep the window inside the viewport and drop card lanes when it gets narrow,
--- so a phone gets one readable column instead of three slivers.
 function Window:Fit(viewport)
     viewport = viewport or Util.viewport()
 
@@ -7468,7 +7147,7 @@ function Window:Fit(viewport)
 
     self:Compress(self.width)
 
-    -- roughly 300px of usable width per lane before cards stop being readable
+
     local lanes = math.clamp(math.floor(self.width / 300), self.minColumns, self.columns)
     for _, tab in ipairs(self.tabs) do
         tab:Reflow(lanes)
@@ -7476,7 +7155,7 @@ function Window:Fit(viewport)
 
     self:Resize(false)
 
-    -- keep the window on screen after a resize or rotation
+
     local half = self.Shell.AbsoluteSize / 2
     local pos = self.Shell.Position
     self.Shell.Position = UDim2.new(
@@ -7498,8 +7177,6 @@ function Window:Tab(opts)
     return tab
 end
 
--- slide the underline to a tab. Positions are read live rather than cached so
--- this stays correct while the strip scrolls.
 function Window:Mark(tab, animate)
     if not tab or not tab.Button then
         return
@@ -7518,19 +7195,6 @@ function Window:Mark(tab, animate)
     end
 end
 
---[[
-    An arrow at each end of the tab strip.
-
-    A hidden scrollbar leaves nothing on screen to say the strip goes further, and
-    on a phone there is no wheel to find out with. Roblox will scroll the frame
-    from a touch drag, but only if you already know to try — and a drag that
-    starts on a tab reads as a press until the finger moves, which is not a thing
-    to make someone discover.
-
-    So: a tappable arrow, which every pointer has, showing only on the side that
-    has something past it. It sits outside the strip rather than inside, or it
-    would scroll away with the tabs it belongs to.
-]]
 function Window:BuildRail(root)
     local size = math.max(Theme.chrome.strip - 12, 24)
     local pad = Theme.chrome.strip
@@ -7547,7 +7211,7 @@ function Window:BuildRail(root)
             ZIndex = 6,
             Parent = root,
         })
-        -- the tabs fade out under the arrow instead of being cut off by it
+
         local wash = Craft.gradient(button, Theme.get("backdrop"), Theme.get("backdrop"), side == 0 and 0 or 180)
         wash.Transparency = NumberSequence.new({
             NumberSequenceKeypoint.new(0, 0),
@@ -7587,8 +7251,8 @@ function Window:BuildRail(root)
     self.RailLeft = arrow("chevron-left", 0)
     self.RailRight = arrow("chevron-right", 1)
 
-    -- a tab being added changes the canvas without moving it, so CanvasPosition
-    -- alone would never fire
+
+
     self.Strip:GetPropertyChangedSignal("AbsoluteCanvasSize"):Connect(function()
         self:Rail()
     end)
@@ -7597,14 +7261,6 @@ function Window:BuildRail(root)
     end)
 end
 
---[[
-    How far the strip can travel, and where it is.
-
-    Worth stating because it is not what the property names suggest: under a
-    UIScale, CanvasPosition lives in the same scaled space as AbsoluteCanvasSize
-    and AbsoluteWindowSize, not in the frame's own offsets. Measured, not
-    assumed — the engine clamps CanvasPosition to exactly this difference.
-]]
 function Window:railRange()
     local strip = self.Strip
     local span = strip.AbsoluteCanvasSize.X - strip.AbsoluteWindowSize.X
@@ -7620,8 +7276,6 @@ function Window:Rail()
     self.RailRight.Visible = span > 2 and at < span - 2
 end
 
--- one arrow tap moves most of a screenful, keeping a tab or two of overlap so
--- the strip does not feel like it jumped somewhere unrelated
 function Window:Nudge(direction)
     local strip = self.Strip
     local span, at = self:railRange()
@@ -7630,8 +7284,6 @@ function Window:Nudge(direction)
     Util.tween(strip, { CanvasPosition = Vector2.new(target, 0) }, Util.ease.out)
 end
 
--- scroll a tab into view, so selecting one that sits past the strip's edge
--- actually shows it
 function Window:Reveal(tab)
     local strip = self.Strip
     if not tab or not tab.Button or not strip:IsA("ScrollingFrame") then
@@ -7640,7 +7292,7 @@ function Window:Reveal(tab)
     local left = tab.Button.AbsolutePosition.X - strip.AbsolutePosition.X + strip.CanvasPosition.X
     local right = left + tab.Button.AbsoluteSize.X
     local view = strip.AbsoluteWindowSize.X
-    -- leave room for the arrow rather than tucking the tab underneath it
+
     local margin = Theme.chrome.strip
     local target = strip.CanvasPosition.X
     if left - margin < target then
@@ -7659,8 +7311,8 @@ function Window:Select(tab)
     if self.active == tab then
         return
     end
-    -- swap the pointer first: Tab:Paint() derives its state from window.active,
-    -- so hiding before the swap would repaint the outgoing tab as still active
+
+
     local previous = self.active
     self.active = tab
     if previous then
@@ -7718,16 +7370,8 @@ function Window:Toggle(state)
     end
 end
 
--- key state is a countdown, so re-read it rather than trusting what was true at
--- construction; otherwise the header can say Free while the menu says 27d left
 function Window:RefreshPlan()
-    if self.PlanFixed or not self.PlanLabel or not self.PlanLabel.Parent then
-        return
-    end
-    local plan = Luarmor.plan()
-    self.Account.Tag = plan
-    self.PlanLabel.Text = plan
-    Theme.rebind(self.PlanLabel, "TextColor3", Luarmor.isPremium() and "accent" or "success")
+    -- account panel hidden; no-op
 end
 
 function Window:Profile(anchor)
@@ -7786,7 +7430,7 @@ function Window:Profile(anchor)
                 Parent = top,
             })
 
-            -- real key state from Luarmor, not a made-up level
+
             local meter = Craft.frame({
                 BackgroundTransparency = 1,
                 Size = UDim2.new(1, 0, 0, 32),
@@ -7919,7 +7563,7 @@ function Window:Settings(anchor)
             Util.list(panel, 12)
             Util.pad(panel, 0, 8, 0, 0)
 
-            -- cap the height against the viewport rather than a fixed number
+
             task.defer(function()
                 if not panel.Parent then
                     return
@@ -7940,9 +7584,9 @@ function Window:Settings(anchor)
                 Parent = panel,
             })
 
-            -- Equal-width cells so the row spans the panel evenly, and the selection
-            -- ring lives in its own frame rather than as an outward stroke on the dot
-            -- (a 2px border on an 18px dot needs 22px of row and clips otherwise).
+
+
+
             local palette = Craft.frame({
                 Name = "Palette",
                 BackgroundTransparency = 1,
@@ -8046,7 +7690,7 @@ function Window:Settings(anchor)
 
             Craft.divider(panel, 5)
 
-            -- nothing is forced on: every HUD widget can be switched off here
+
             Craft.text({
                 Text = "Interface elements",
                 Token = "textFaint",
@@ -8183,30 +7827,6 @@ end
 return Window
 end
 
---[[
-    Legacy API shim.
-
-    Scripts written against the previous Flow library carried one nesting level
-    more than this one:
-
-        Library.new{...}          ->  Flow.new{...} + ui:Window{...}
-        Window:CreateSection{...} ->  (no level of its own; supplies a fallback icon)
-        Section:AddTab{...}       ->  win:Tab{...}
-        Tab:AddGroup{Side=...}    ->  tab:Module{Column=1|2}
-        Group:AddToggle{...}      ->  card:Toggle{...}
-
-    A Module card owns an on/off switch and a keybind chip; an old Group was a
-    plain titled box. Group-backed cards therefore hide both and stay enabled, so
-    a card that was never meant to toggle cannot be switched off and silently
-    kill the controls inside it.
-
-    Control objects are augmented in place rather than wrapped, so `.Value`,
-    `.Frame` and `:Set(v, silent)` keep working next to the legacy `:Get()` and
-    `:UpdateOptions()` helpers.
-
-    Reached as `loadstring(game:HttpGet(url))().Legacy` — kept off `Flow.new` so
-    the two `.new({...})` signatures can never be confused for one another.
-]]
 __flowStartupCheckpoint()
 __modules["ui/legacy"] = function(require)
 __flowStartupCheckpoint()
@@ -8216,9 +7836,9 @@ return function(Flow)
     local Compat = {}
     Compat.Flow = Flow
 
-    -- the old library exposed these at its top level and scripts reach for them
-    -- directly (`Library.Icons` and friends), so mirror them rather than
-    -- handing back nil
+
+
+
     Compat.Version = Flow.Version
     Compat.Icons = Flow.Icons
     Compat.Theme = Flow.Theme
@@ -8229,7 +7849,7 @@ return function(Flow)
     Compat.Controls = Flow.Controls
     Compat.Protected = Flow.Protected
 
-    -- background pollers started for dropdown auto-refresh, stopped on unload
+
     local refreshers = {}
 
     local function stopRefreshers()
@@ -8254,7 +7874,7 @@ return function(Flow)
         return handle
     end
 
-    -- old scripts pass bare numeric asset ids in a few places
+
     local function icon(...)
         for i = 1, select("#", ...) do
             local value = select(i, ...)
@@ -8268,7 +7888,7 @@ return function(Flow)
         return nil
     end
 
-    -- `:Get()` and friends that the old control objects exposed
+
     local function augment(control)
         if type(control) ~= "table" then
             return control
@@ -8283,17 +7903,8 @@ return function(Flow)
             control.SetOptions = control.Options
             control.SetValues = control.Options
 
-            --[[
-                Scripts probe for whichever of these the old library happened to
-                expose, in their own order:
 
-                    if type(d.Refresh) == "function" then d:Refresh(list)
-                    elseif type(d.SetOptions) == "function" then ...
 
-                A no-op Refresh satisfies the first branch and swallows the
-                update, leaving the list empty with nothing raised. So every name
-                a script might reach for has to actually do the work.
-            ]]
             function control:Refresh(list)
                 if type(list) == "table" then
                     self:Options(list)
@@ -8302,7 +7913,7 @@ return function(Flow)
                 end
             end
 
-            -- and the rebuild-one-at-a-time shape
+
             function control:Clear()
                 self.staged = {}
                 self:Options({})
@@ -8315,7 +7926,7 @@ return function(Flow)
             end
         end
         if not control.Refresh then
-            -- a toggle or slider has nothing to refresh; keep the call safe
+
             function control:Refresh() end
         end
         return control
@@ -8334,9 +7945,9 @@ return function(Flow)
         end
     end
 
-    -- -----------------------------------------------------------------------
-    -- Group  ->  Module card
-    -- -----------------------------------------------------------------------
+
+
+
 
     local Group = {}
     Group.__index = Group
@@ -8358,8 +7969,8 @@ return function(Flow)
 
     function Group:AddSlider(opts)
         opts = opts or {}
-        -- the slider derives its decimal places from the step, so `Decimals`
-        -- only matters when it is finer than the increment
+
+
         local step = opts.Increment or opts.Step
         if opts.Decimals and opts.Decimals > 0 then
             local fromDecimals = 10 ^ -opts.Decimals
@@ -8399,7 +8010,7 @@ return function(Flow)
             Callback = opts.Callback,
         })
 
-        -- the old library refreshed dropdown contents from a provider on a timer
+
         if type(opts.OptionsProvider) == "function" then
             local function flatten(values)
                 local flat = {}
@@ -8457,8 +8068,8 @@ return function(Flow)
         local control = self.card:Label(opts.Wrap and { Desc = text } or { Name = text })
         control.Wrapped = opts.Wrap and true or false
 
-        -- Craft.head always lays out a 17px title row; on a wrapped label that
-        -- row is empty and would sit as a blank gap above the body copy
+
+
         if control.Wrapped then
             local head = control.Frame and control.Frame:FindFirstChild("Head")
             local title = head and head:FindFirstChild("Title")
@@ -8481,8 +8092,8 @@ return function(Flow)
     function Group:AddKeybind(opts)
         opts = opts or {}
         local flow = self.card.flow
-        -- old: Callback fires on press, ChangedCallback fires on rebind.
-        -- new: OnPress fires on press, Callback fires on rebind.
+
+
         local control = self.card:Keybind({
             Name = opts.Name,
             Desc = opts.Desc or opts.Description,
@@ -8490,7 +8101,7 @@ return function(Flow)
             Flag = opts.Flag,
             OnPress = opts.Callback,
             Callback = function(key)
-                -- keep the Keybinds panel in step with a rebind
+
                 if flow.hud and flow.hud.keybinds then
                     flow.hud.keybinds:Sync()
                 end
@@ -8501,8 +8112,8 @@ return function(Flow)
         })
         control.Mode = opts.Mode or "Toggle"
 
-        -- list it on the Keybinds panel; a module header bind lands there
-        -- automatically, a control one has to be registered
+
+
         table.insert(flow.binds, {
             Name = opts.Name or self.Name or "Keybind",
             Icon = icon(opts.Icon, self.Icon, "keyboard"),
@@ -8535,7 +8146,7 @@ return function(Flow)
             Placeholder = opts.Placeholder,
             Default = opts.Default,
             Flag = opts.Flag,
-            -- old `EnterOnly` means "only fire once the user commits with return"
+
             OnEnter = opts.EnterOnly and true or nil,
             Callback = opts.Callback,
         }))
@@ -8553,9 +8164,9 @@ return function(Flow)
         return buildInput(self, opts)
     end
 
-    -- a few scripts nest named pages inside a group. There is no level below a
-    -- card, so each page becomes its own sibling card titled "<Group> · <Page>",
-    -- keeping the controls grouped and in the same column.
+
+
+
     function Group:AddTabs(names)
         local pages = {}
         for _, name in ipairs(names or {}) do
@@ -8576,9 +8187,9 @@ return function(Flow)
         self.card.Frame:Destroy()
     end
 
-    -- -----------------------------------------------------------------------
-    -- Tab
-    -- -----------------------------------------------------------------------
+
+
+
 
     local Tab = {}
     Tab.__index = Tab
@@ -8601,8 +8212,8 @@ return function(Flow)
             Expanded = true,
         })
 
-        -- an old Group is a plain container: no switch, no keybind chip, and it
-        -- can never be turned off from the header
+
+
         if card.Switch and card.Switch.Frame then
             card.Switch.Frame.Visible = false
         end
@@ -8623,9 +8234,9 @@ return function(Flow)
         self.tab.window:Select(self.tab)
     end
 
-    -- -----------------------------------------------------------------------
-    -- Section — collapses away; only its icon survives as a per-tab fallback
-    -- -----------------------------------------------------------------------
+
+
+
 
     local Section = {}
     Section.__index = Section
@@ -8642,8 +8253,8 @@ return function(Flow)
         opts = opts or {}
         local name = opts.Name or "Tab"
 
-        -- two sections can each own a tab called "Main"; with the section level
-        -- gone those would collide in one strip, so the section name splits them
+
+
         local taken = self.window.tabNames
         if taken[name] and self.Name then
             name = self.Name .. " · " .. name
@@ -8655,9 +8266,9 @@ return function(Flow)
             Icon = icon(opts.Icon, opts.FallbackIcon, self.Icon, "cube"),
         })
 
-        -- `Description` was a subtitle under the old tab name. The strip is a
-        -- single row of labelled buttons with nowhere to put it, and Tab carries
-        -- no search terms of its own, so it is dropped rather than faked.
+
+
+
 
         local proxy = Tab.new(tab, self.Icon)
         if opts.Default then
@@ -8666,14 +8277,14 @@ return function(Flow)
         return proxy
     end
 
-    -- -----------------------------------------------------------------------
-    -- Window — what Library.new() returned
-    --
-    -- The old library table *was* the window class: scripts called
-    -- `Library.new(...)` and the result answered `:CreateSection`, `:Notify`
-    -- and `:Destroy`. Some scripts validate the download by checking for those
-    -- very fields, so Compat is the class rather than a separate table.
-    -- -----------------------------------------------------------------------
+
+
+
+
+
+
+
+
 
     Compat.__index = Compat
 
@@ -8689,7 +8300,7 @@ return function(Flow)
             Volume = opts.Volume,
         })
 
-        -- the old library previewed a key state through its own options
+
         if opts.LuarmorSecondsLeft then
             Luarmor.override = { SecondsLeft = opts.LuarmorSecondsLeft }
         end
@@ -8700,24 +8311,15 @@ return function(Flow)
             Title = title,
             Build = opts.Subtitle or opts.Build,
             Size = opts.Size,
-            -- old groups pick a side, so two lanes reproduce that exactly
+
             Columns = opts.Columns or 2,
             MinColumns = opts.MinColumns or 1,
             User = opts.User,
             Mark = opts.Mark,
         })
 
-        --[[
-            The old library built a status pill at top centre on its own — script
-            name, ping and fps, doubling as the menu toggle. HUD widgets are
-            opt-in here, so a converted script would come up with none at all and
-            "No HUD widgets loaded" under Interface elements.
 
-            Trigger is that top-centre toggle; Watermark carries the ping/fps
-            readout the old pill showed alongside it. Both appear as switches in
-            settings, so anyone who does not want them can turn them off, and the
-            choice is saved with the config.
-        ]]
+
         if opts.Hud ~= false then
             pcall(function()
                 ui:Trigger({ Text = title })
@@ -8785,7 +8387,7 @@ return function(Flow)
 
     Compat.Unload = Compat.Destroy
 
-    -- callable as both Legacy.new{...} and Legacy{...}
+
     setmetatable(Compat, {
         __call = function(_, opts)
             return Compat.new(opts)
