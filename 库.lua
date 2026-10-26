@@ -96,12 +96,13 @@ local SA_Config = {
 	BlacklistedPlayers = {},
 	Whitelist = {},
 	Blacklist = {},
-	FOV = { Enabled = true, Radius = 300, Visible = true, Thickness = 2, Color = Color3.new(1,1,1) },
+	NPCSupport = false,
+	FOV = { Enabled = false, Radius = 300, Visible = false, Thickness = 2, Color = Color3.new(1,1,1) },
 	Highlight = {
-		Enabled = true,
+		Enabled = false,
 		OutlineTransparency = 0.5,
 		FillTransparency = 0.8,
-		DistanceColorEnabled = true,
+		DistanceColorEnabled = false,
 		CloseDistance = 10,
 		FarDistance = 50,
 		OutlineColor = Color3.new(0,1,0),
@@ -111,16 +112,16 @@ local SA_Config = {
 		FarColor = Color3.new(0,1,0)
 	},
 	PredictionSphere = {
-		Enabled = true,
+		Enabled = false,
 		Size = 5,
 		Transparency = 0.4,
-		TrailEffect = true,
+		TrailEffect = false,
 		TrailLength = 5,
-		RainbowEffect = true,
+		RainbowEffect = false,
 		RainbowSpeed = 1,
 		Material = Enum.Material.ForceField,
 		Color = Color3.new(1,0,1),
-		PulseEffect = true,
+		PulseEffect = false,
 		PulseSpeed = 0.8,
 		PulseSize = { Min = 1, Max = 2 }
 	},
@@ -145,8 +146,12 @@ local function saveSilentAimSettings()
 	end)
 end
 
+local SA_PlayerList = {}
+local SA_NPCCache = {}
+
 local TT = {
 	CurrentTarget = nil,
+	NPCTarget = nil,
 	PredictedPosition = nil,
 	PredictedCF = nil,
 	ScreenPos = nil,
@@ -268,9 +273,13 @@ function TT:RemoveAllHighlights()
 	self.Highlights = {}
 end
 
+local SA_LastHLUpdate = 0
 function TT:UpdateHighlightColors(player, dist)
 	local h = self.Highlights[player.Name]
 	if not h or not self.Config.Highlight.DistanceColorEnabled then return end
+	local now = tick()
+	if now - SA_LastHLUpdate < 0.1 then return end
+	SA_LastHLUpdate = now
 	local t = math.clamp((dist - self.Config.Highlight.CloseDistance) / (self.Config.Highlight.FarDistance - self.Config.Highlight.CloseDistance), 0, 1)
 	local c
 	if t < 0.5 then
@@ -322,6 +331,58 @@ function TT:PredictPositionByDistance(player, origin, speed)
 	return nil
 end
 
+local SA_CachedPing, SA_PingCacheTime = 0, 0
+local function getPing()
+	local now = tick()
+	if now - SA_PingCacheTime >= 1 then
+		SA_PingCacheTime = now
+		pcall(function()
+			local s = (game:GetService("Stats") :: any).Network.ServerStatsItem["Data Ping"]
+			SA_CachedPing = s and s.Value or 0
+		end)
+	end
+	return SA_CachedPing
+end
+
+function TT:FindNearestNPC()
+	local char = LocalPlayer.Character
+	if not char then return nil end
+	local hrp = char:FindFirstChild("HumanoidRootPart")
+	if not hrp or not CurrentCamera then return nil end
+	local vpSize = CurrentCamera.ViewportSize
+	local center = Vector2.new(vpSize.X / 2, vpSize.Y / 2)
+	local bestChar, bestDist = nil, math.huge
+	for npcChar, humanoid in pairs(SA_NPCCache) do
+		if humanoid and humanoid.Parent and humanoid.Health > 0 then
+			local npcHrp = npcChar:FindFirstChild("HumanoidRootPart") or npcChar:FindFirstChildWhichIsA("BasePart")
+			if npcHrp then
+				local dist = (npcHrp.Position - hrp.Position).Magnitude
+				if self.Config.FOV.Enabled then
+					local sp, onScreen = CurrentCamera:WorldToViewportPoint(npcHrp.Position)
+					if onScreen and (Vector2.new(sp.X, sp.Y) - center).Magnitude <= self.Config.FOV.Radius then
+						if dist < bestDist then bestChar = npcChar; bestDist = dist end
+					end
+				else
+					if dist < bestDist then bestChar = npcChar; bestDist = dist end
+				end
+			end
+		end
+	end
+	return bestChar, bestDist
+end
+
+function TT:PredictNPCPosition(npcChar, time)
+	local hrp = npcChar:FindFirstChild("HumanoidRootPart")
+	if hrp then return hrp.Position + hrp.Velocity * time end
+	return nil
+end
+
+function TT:PredictNPCPositionByDistance(npcChar, origin, speed)
+	local hrp = npcChar:FindFirstChild("HumanoidRootPart")
+	if hrp then return hrp.Position + hrp.Velocity * ((hrp.Position - origin).Magnitude / speed) end
+	return nil
+end
+
 function TT:FindNearestTarget()
 	local char = LocalPlayer.Character
 	if not char then return nil end
@@ -332,7 +393,7 @@ function TT:FindNearestTarget()
 	local center = Vector2.new(vpSize.X / 2, vpSize.Y / 2)
 	local bestPlayer, bestDist = nil, math.huge
 
-	for _, player in pairs(Players:GetPlayers()) do
+	for _, player in pairs(SA_PlayerList) do
 		if self:IsValidTarget(player) then
 			local pChar = player.Character
 			if pChar then
@@ -359,6 +420,7 @@ end
 function TT:Track()
 	if self.Config.Enabled then
 		local player, dist = self:FindNearestTarget()
+		local pingComp = getPing() / 1000 / 2
 
 		if player then
 			local predicted
@@ -376,13 +438,14 @@ function TT:Track()
 			end
 
 			if self.Config.PredictionMode == "Time" then
-				predicted = self:PredictPosition(player, self.Config.PredictionTime)
+				predicted = self:PredictPosition(player, self.Config.PredictionTime + pingComp)
 			elseif self.Config.PredictionMode == "Distance" and hrp then
 				predicted = self:PredictPositionByDistance(player, hrp.Position, self.Config.SkillSpeed)
 			end
 
 			if predicted and hrp then
 				self.CurrentTarget = player
+				self.NPCTarget = nil
 				self.PredictedPosition = predicted
 				self.ScreenPos = CFrame.new(predicted)
 				self.PredictedCF = CFrame.lookAt(
@@ -409,6 +472,51 @@ function TT:Track()
 				end
 			else
 				self.CurrentTarget = nil
+				self.NPCTarget = nil
+				self.PredictedPosition = nil
+				self.PredictedCF = nil
+				self:RemoveAllHighlights()
+				if self.PredictionVisualization then self.PredictionVisualization.Transparency = 1 end
+			end
+		elseif self.Config.NPCSupport then
+			local npcChar = self:FindNearestNPC()
+			if npcChar then
+				local predicted
+				local char = LocalPlayer.Character
+				local hrp = char and char:FindFirstChild("HumanoidRootPart")
+				self.TargetGetAttacked = false
+				if self.Config.PredictionMode == "Time" then
+					predicted = self:PredictNPCPosition(npcChar, self.Config.PredictionTime + pingComp)
+				elseif self.Config.PredictionMode == "Distance" and hrp then
+					predicted = self:PredictNPCPositionByDistance(npcChar, hrp.Position, self.Config.SkillSpeed)
+				end
+				if predicted and hrp then
+					self.CurrentTarget = nil
+					self.NPCTarget = npcChar
+					self.PredictedPosition = predicted
+					self.ScreenPos = CFrame.new(predicted)
+					self.PredictedCF = CFrame.lookAt(
+						Vector3.new(hrp.Position.X, predicted.Y, hrp.Position.Z),
+						Vector3.new(predicted.X, predicted.Y, predicted.Z)
+					)
+					if self.Config.PredictionSphere.Enabled then
+						if not self.PredictionVisualization then SA_CreateSphere() end
+						self.PredictionVisualization.Position = predicted
+						self.PredictionVisualization.Transparency = self.Config.PredictionSphere.Transparency
+					elseif self.PredictionVisualization then
+						self.PredictionVisualization.Transparency = 1
+					end
+				else
+					self.CurrentTarget = nil
+					self.NPCTarget = nil
+					self.PredictedPosition = nil
+					self.PredictedCF = nil
+					if self.PredictionVisualization then self.PredictionVisualization.Transparency = 1 end
+				end
+				self:RemoveAllHighlights()
+			else
+				self.CurrentTarget = nil
+				self.NPCTarget = nil
 				self.PredictedPosition = nil
 				self.PredictedCF = nil
 				self:RemoveAllHighlights()
@@ -416,6 +524,7 @@ function TT:Track()
 			end
 		else
 			self.CurrentTarget = nil
+			self.NPCTarget = nil
 			self.PredictedPosition = nil
 			self.PredictedCF = nil
 			self:RemoveAllHighlights()
@@ -424,36 +533,11 @@ function TT:Track()
 
 		self.FOVCircleFrame.Visible = self.Config.FOV.Visible
 
-		if self.Config.PredictionSphere.RainbowEffect and self.PredictionVisualization then
-			if not self._rainbowConnection then
-				self._rainbowConnection = RunService.RenderStepped:Connect(function()
-					local t = tick() % (self.Config.PredictionSphere.RainbowSpeed * 10) / (self.Config.PredictionSphere.RainbowSpeed * 10)
-					local hv = t * 6
-					local i = math.floor(hv)
-					local f = hv - i
-					local q = 1 - f
-					local r, g, b
-					if i == 0 then r, g, b = 1, f, 0
-					elseif i == 1 then r, g, b = q, 1, 0
-					elseif i == 2 then r, g, b = 0, 1, f
-					elseif i == 3 then r, g, b = 0, q, 1
-					elseif i == 4 then r, g, b = f, 0, 1
-					else r, g, b = 1, 0, q end
-					self.PredictionVisualization.Color = Color3.new(r, g, b)
-					if self.PredictionTrail then
-						self.PredictionTrail.Color = ColorSequence.new(Color3.new(r, g, b))
-					end
-				end)
-			end
-		elseif self._rainbowConnection then
-			self._rainbowConnection:Disconnect()
-			self._rainbowConnection = nil
-		end
-
 		return
 	end
 
 	self.CurrentTarget = nil
+	self.NPCTarget = nil
 	self.PredictedPosition = nil
 	self.PredictedCF = nil
 	self.FOVCircleFrame.Visible = false
@@ -468,8 +552,33 @@ function TT:SetFOVRadius(radius)
 	if corner then corner.CornerRadius = UDim.new(0, radius) end
 end
 
-RunService.RenderStepped:Connect(function() TT:Track() end)
 getgenv().TargetTracker = TT
+
+SA_PlayerList = Players:GetPlayers()
+Players.PlayerAdded:Connect(function() SA_PlayerList = Players:GetPlayers() end)
+Players.PlayerRemoving:Connect(function() task.defer(function() SA_PlayerList = Players:GetPlayers() end) end)
+
+local function SA_CacheNPC(desc)
+	if not desc:IsA("Humanoid") then return end
+	local char = desc.Parent
+	if not char or char == workspace then return end
+	for _, p in pairs(SA_PlayerList) do if p.Character == char then return end end
+	SA_NPCCache[char] = desc
+end
+workspace.DescendantAdded:Connect(SA_CacheNPC)
+workspace.DescendantRemoving:Connect(function(desc)
+	if desc:IsA("Humanoid") then SA_NPCCache[desc.Parent] = nil end
+end)
+for _, v in pairs(workspace:GetDescendants()) do SA_CacheNPC(v) end
+
+local SA_TrackInterval = 1 / 30
+local SA_LastTrack = 0
+RunService.Heartbeat:Connect(function()
+	local now = tick()
+	if now - SA_LastTrack < SA_TrackInterval then return end
+	SA_LastTrack = now
+	TT:Track()
+end)
 
 local SA_LongerHit = false
 local SA_UseRosterCF = false
@@ -554,7 +663,8 @@ workspace.NPCSpawns.DescendantAdded:Connect(function(descendant)
 end)
 
 workspace.NPCSpawns.DescendantRemoving:Connect(function(descendant)
-	if descendant.Parent.Name == "BossSpawn" or descendant.Parent.Name == "GyakusatsuSpawn" then
+	local ok, parentName = pcall(function() return descendant.Parent.Name end)
+	if ok and (parentName == "BossSpawn" or parentName == "GyakusatsuSpawn") then
 		local name = descendant.Name
 		if bossStates[name] ~= nil then
 			bossStates[name] = false
@@ -637,7 +747,7 @@ end
 
 _G.DashSpeed    = _G.DashSpeed    or 4250
 _G.DashDistance = _G.DashDistance or 50
-_G.BoostSpeed    = true
+_G.BoostSpeed    = false
 _G.BoostDistance = false
 
 local function dashBoostTowardTarget()
@@ -673,10 +783,28 @@ _G.SilentAimTracker     = TT
 _G.SaveSilentAimSettings = saveSilentAimSettings
 _G.ScheduleSettingsSave  = scheduleSettingsSave
 
+local function SA_StartRainbow()
+	if TT._rainbowConnection then return end
+	TT._rainbowConnection = RunService.RenderStepped:Connect(function()
+		if not TT.PredictionVisualization then return end
+		local t = tick() % (TT.Config.PredictionSphere.RainbowSpeed * 10) / (TT.Config.PredictionSphere.RainbowSpeed * 10)
+		local hv = t * 6; local i = math.floor(hv); local f = hv - i; local q = 1 - f
+		local r, g, b
+		if i == 0 then r,g,b=1,f,0 elseif i==1 then r,g,b=q,1,0 elseif i==2 then r,g,b=0,1,f
+		elseif i==3 then r,g,b=0,q,1 elseif i==4 then r,g,b=f,0,1 else r,g,b=1,0,q end
+		local c = Color3.new(r,g,b)
+		TT.PredictionVisualization.Color = c
+		if TT.PredictionTrail then TT.PredictionTrail.Color = ColorSequence.new(c) end
+	end)
+end
+local function SA_StopRainbow()
+	if TT._rainbowConnection then TT._rainbowConnection:Disconnect(); TT._rainbowConnection = nil end
+end
+
 local library        = loadstring(game:HttpGet("https://raw.githubusercontent.com/imagoodpersond/puppyware/main/lib"))()
 local NotifyLibrary  = loadstring(game:HttpGet("https://raw.githubusercontent.com/imagoodpersond/puppyware/main/notify"))()
 
-local W = library:new({ name = "Private Silent Aim [Ro-Ghoul]", color = Color3.fromRGB(0, 210, 255) })
+local W = library:new({ name = "[⚖️BALANCE!] Ro-Ghoul [ALPHA]", color = Color3.fromRGB(0, 210, 255) })
 
 local SilentAimPage = W:page({ name = "Silent Aim" })
 local PredPage      = W:page({ name = "Prediction" })
@@ -684,44 +812,45 @@ local MiscPage      = W:page({ name = "Misc" })
 
 SilentAimPage:openpage()
 
-local saSec = SilentAimPage:section({ name = "Silent Aim", side = "left", size = 245 })
-saSec:toggle({ name = "Enable Silent Aim",       def = TT.Config.Enabled,     callback = function(v) TT.Config.Enabled=v; _G.SilentAimSettings.Config.Enabled=v; saveSilentAimSettings() end })
-saSec:toggle({ name = "Silent Mouse (ClipWing)", def = TT.Config.MouseSilent, callback = function(v) SA_MouseSilent=v; TT.Config.MouseSilent=v; _G.SilentAimSettings.Config.MouseSilent=v; saveSilentAimSettings() end })
-saSec:toggle({ name = "Longer Hit",              def = SA_LongerHit,          callback = function(v) SA_LongerHit=v end })
-saSec:toggle({ name = "Use Roster CF",           def = SA_UseRosterCF,        callback = function(v) SA_UseRosterCF=v end })
-saSec:toggle({ name = "Ignore Ally",             def = TT.Config.IgnoreAlly,  callback = function(v) TT.Config.IgnoreAlly=v; saveSilentAimSettings() end })
-saSec:dropdown({ name = "Mode", def = TT.Config.Mode, options = {"Blacklist","Whitelist"}, callback = function(v) TT.Config.Mode=v; saveSilentAimSettings() end })
-saSec:textbox({ name = "Whitelist", def = table.concat(TT.Config.Whitelist or {}, ","), placeholder = "player1,player2", callback = function(v)
+local saSec = SilentAimPage:section({ name = "Silent Aim", side = "left", size = 265 })
+saSec:toggle({ name = "Enable Silent Aim",       desc = "Bends your hit CFrame toward the predicted target position each attack", def = false, callback = function(v) TT.Config.Enabled=v; _G.SilentAimSettings.Config.Enabled=v; saveSilentAimSettings() end })
+saSec:toggle({ name = "NPC Support",             desc = "Extends silent aim to bosses and NPCs — scans workspace for valid humanoids. Players are always prioritised first", def = false, callback = function(v) TT.Config.NPCSupport=v; saveSilentAimSettings() end })
+saSec:toggle({ name = "Silent Mouse (ClipWing)", desc = "Also moves your screen position (arg3) to the target — makes the server see you looking at them", def = false, callback = function(v) SA_MouseSilent=v; TT.Config.MouseSilent=v; _G.SilentAimSettings.Config.MouseSilent=v; saveSilentAimSettings() end })
+saSec:toggle({ name = "Longer Hit",              desc = "Extends your hit range by keeping the previous hit CFrame — helps land shots at distance", def = false, callback = function(v) SA_LongerHit=v end })
+saSec:toggle({ name = "Use Roster CF",           desc = "Passes the target's root CFrame as arg4 — may improve server-side hit registration", def = false, callback = function(v) SA_UseRosterCF=v end })
+saSec:toggle({ name = "Ignore Ally",             desc = "Skips players in your Allied list so you never accidentally redirect hits onto teammates", def = false, callback = function(v) TT.Config.IgnoreAlly=v; saveSilentAimSettings() end })
+saSec:dropdown({ name = "Mode", desc = "Whitelist = only listed players; Blacklist = everyone except listed players", def = TT.Config.Mode, options = {"Blacklist","Whitelist"}, callback = function(v) TT.Config.Mode=v; saveSilentAimSettings() end })
+saSec:textbox({ name = "Whitelist", desc = "Comma-separated usernames to allow when Mode is Whitelist", def = table.concat(TT.Config.Whitelist or {}, ","), placeholder = "player1,player2", callback = function(v)
 	local t = {}; local d = {}
 	for s in v:gmatch("[^,]+") do local n = s:match("^%s*(.-)%s*$"); t[#t+1] = n; d[n] = true end
 	TT.Config.Whitelist = t; TT.Config.WhitelistedPlayers = d; saveSilentAimSettings()
 end })
-saSec:textbox({ name = "Blacklist", def = table.concat(TT.Config.Blacklist or {}, ","), placeholder = "player1,player2", callback = function(v)
+saSec:textbox({ name = "Blacklist", desc = "Comma-separated usernames to skip when Mode is Blacklist", def = table.concat(TT.Config.Blacklist or {}, ","), placeholder = "player1,player2", callback = function(v)
 	local t = {}; local d = {}
 	for s in v:gmatch("[^,]+") do local n = s:match("^%s*(.-)%s*$"); t[#t+1] = n; d[n] = true end
 	TT.Config.Blacklist = t; TT.Config.BlacklistedPlayers = d; saveSilentAimSettings()
 end })
 
 local fovSec = SilentAimPage:section({ name = "FOV", side = "left", size = 125 })
-fovSec:toggle({ name = "Enable FOV",  def = TT.Config.FOV.Enabled, callback = function(v) TT.Config.FOV.Enabled=v; if not v then SA_FOVFrame.Visible=false end; saveSilentAimSettings() end })
-fovSec:toggle({ name = "FOV Visible", def = TT.Config.FOV.Visible, callback = function(v) TT.Config.FOV.Visible=v; saveSilentAimSettings() end })
-fovSec:slider({ name = "Radius",    def = TT.Config.FOV.Radius,    min = 50,  max = 600, rounding = true, callback = function(v) TT:SetFOVRadius(v); saveSilentAimSettings() end })
-fovSec:slider({ name = "Thickness", def = TT.Config.FOV.Thickness, min = 1,   max = 6,   rounding = true, callback = function(v) TT.Config.FOV.Thickness=v; SA_FOVStroke.Thickness=v; saveSilentAimSettings() end })
+fovSec:toggle({ name = "Enable FOV",  desc = "Restricts targeting to enemies within the FOV circle — improves precision by ignoring off-screen targets", def = false, callback = function(v) TT.Config.FOV.Enabled=v; if not v then SA_FOVFrame.Visible=false end; saveSilentAimSettings() end })
+fovSec:toggle({ name = "FOV Visible", desc = "Draws the FOV circle on your screen so you can see its range", def = false, callback = function(v) TT.Config.FOV.Visible=v; saveSilentAimSettings() end })
+fovSec:slider({ name = "Radius",    desc = "Size of the FOV circle in pixels from screen center", def = TT.Config.FOV.Radius,    min = 50,  max = 600, rounding = true, callback = function(v) TT:SetFOVRadius(v); saveSilentAimSettings() end })
+fovSec:slider({ name = "Thickness", desc = "Border thickness of the FOV circle", def = TT.Config.FOV.Thickness, min = 1, max = 6, rounding = true, callback = function(v) TT.Config.FOV.Thickness=v; SA_FOVStroke.Thickness=v; saveSilentAimSettings() end })
 
 local adSec = SilentAimPage:section({ name = "Anti Delay", side = "left", size = 45 })
-adSec:toggle({ name = "Enable Anti Delay", def = _G.CurrentSettings.AntiDelay or false, callback = function(v) _G.ToggleAntiDelay(v); scheduleSettingsSave() end })
+adSec:toggle({ name = "Enable Anti Delay", desc = "Forces CanAct to stay true so your character never gets stuck waiting between actions", def = false, callback = function(v) _G.ToggleAntiDelay(v); scheduleSettingsSave() end })
 
 local hlSec = SilentAimPage:section({ name = "Highlights", side = "right", size = 125 })
-hlSec:toggle({ name = "Enable Highlights", def = TT.Config.Highlight.Enabled,             callback = function(v) TT.Config.Highlight.Enabled=v; if not v then TT:RemoveAllHighlights() end; saveSilentAimSettings() end })
-hlSec:toggle({ name = "Distance Colors",   def = TT.Config.Highlight.DistanceColorEnabled, callback = function(v) TT.Config.Highlight.DistanceColorEnabled=v; saveSilentAimSettings() end })
-hlSec:slider({ name = "Fill Transp",    def = math.floor(TT.Config.Highlight.FillTransparency*10),    min = 0, max = 10, rounding = true, callback = function(v) TT.Config.Highlight.FillTransparency=v/10;    for _,h in pairs(TT.Highlights) do h.FillTransparency=v/10    end; saveSilentAimSettings() end })
-hlSec:slider({ name = "Outline Transp", def = math.floor(TT.Config.Highlight.OutlineTransparency*10), min = 0, max = 10, rounding = true, callback = function(v) TT.Config.Highlight.OutlineTransparency=v/10; for _,h in pairs(TT.Highlights) do h.OutlineTransparency=v/10 end; saveSilentAimSettings() end })
+hlSec:toggle({ name = "Enable Highlights", desc = "Places a visible highlight on the current silent aim target so you always know who you are locked onto", def = false, callback = function(v) TT.Config.Highlight.Enabled=v; if not v then TT:RemoveAllHighlights() end; saveSilentAimSettings() end })
+hlSec:toggle({ name = "Distance Colors",   desc = "Shifts the highlight colour from red (close) to yellow to green (far) based on target distance", def = false, callback = function(v) TT.Config.Highlight.DistanceColorEnabled=v; saveSilentAimSettings() end })
+hlSec:slider({ name = "Fill Transp",    desc = "Transparency of the highlight fill — 10 = invisible, 0 = solid", def = math.floor(TT.Config.Highlight.FillTransparency*10),    min = 0, max = 10, rounding = true, callback = function(v) TT.Config.Highlight.FillTransparency=v/10;    for _,h in pairs(TT.Highlights) do h.FillTransparency=v/10    end; saveSilentAimSettings() end })
+hlSec:slider({ name = "Outline Transp", desc = "Transparency of the highlight outline", def = math.floor(TT.Config.Highlight.OutlineTransparency*10), min = 0, max = 10, rounding = true, callback = function(v) TT.Config.Highlight.OutlineTransparency=v/10; for _,h in pairs(TT.Highlights) do h.OutlineTransparency=v/10 end; saveSilentAimSettings() end })
 
 local dashSec = SilentAimPage:section({ name = "Dash Boost", side = "right", size = 125 })
-dashSec:toggle({ name = "Boost Speed",    def = _G.BoostSpeed,    callback = function(v) _G.BoostSpeed=v end })
-dashSec:toggle({ name = "Boost Distance", def = _G.BoostDistance, callback = function(v) _G.BoostDistance=v end })
-dashSec:slider({ name = "Dash Speed",    def = _G.DashSpeed,    min = 1000, max = 10000, rounding = true, callback = function(v) _G.DashSpeed=v end })
-dashSec:slider({ name = "Dash Distance", def = _G.DashDistance, min = 10,   max = 200,   rounding = true, callback = function(v) _G.DashDistance=v end })
+dashSec:toggle({ name = "Boost Speed",    desc = "Overrides the dash spring force — makes your dash reach the target faster", def = false, callback = function(v) _G.BoostSpeed=v end })
+dashSec:toggle({ name = "Boost Distance", desc = "Extends how far each dash travels toward the target", def = false, callback = function(v) _G.BoostDistance=v end })
+dashSec:slider({ name = "Dash Speed",    desc = "Spring force applied during a boosted dash", def = _G.DashSpeed,    min = 1000, max = 10000, rounding = true, callback = function(v) _G.DashSpeed=v end })
+dashSec:slider({ name = "Dash Distance", desc = "Max stud range applied when Boost Distance is on", def = _G.DashDistance, min = 10,   max = 200,   rounding = true, callback = function(v) _G.DashDistance=v end })
 
 local bossMon = SilentAimPage:section({ name = "Boss Monitor", side = "right", size = 50 })
 bossMon:button({ name = "Refresh Bosses", callback = function()
@@ -733,43 +862,43 @@ _G.OnBossSpawn = function(n) NotifyLibrary:notify({ message = n .. " spawned!", 
 _G.OnBossDead  = function(n) NotifyLibrary:notify({ message = n .. " eliminated.", color = Color3.fromRGB(200, 60, 60)  }) end
 
 local predSec = PredPage:section({ name = "Prediction", side = "left", size = 125 })
-predSec:dropdown({ name = "Mode",          def = TT.Config.PredictionMode,                      options = {"Distance","Time"}, callback = function(v) TT.Config.PredictionMode=v; saveSilentAimSettings() end })
-predSec:slider({   name = "Skill Speed",   def = TT.Config.SkillSpeed,                          min = 100, max = 5000, rounding = true, callback = function(v) TT.Config.SkillSpeed=v; saveSilentAimSettings() end })
-predSec:slider({   name = "Pred Time (ms)",def = math.floor(TT.Config.PredictionTime * 1000),   min = 0,   max = 500,  rounding = true, callback = function(v) TT.Config.PredictionTime=v/1000; saveSilentAimSettings() end })
+predSec:dropdown({ name = "Mode",          desc = "Distance = accounts for your skill travel speed; Time = fixed offset regardless of range", def = TT.Config.PredictionMode, options = {"Distance","Time"}, callback = function(v) TT.Config.PredictionMode=v; saveSilentAimSettings() end })
+predSec:slider({   name = "Skill Speed",   desc = "Studs/sec your skill travels — used by Distance mode to calculate how far ahead to aim", def = TT.Config.SkillSpeed, min = 100, max = 5000, rounding = true, callback = function(v) TT.Config.SkillSpeed=v; saveSilentAimSettings() end })
+predSec:slider({   name = "Pred Time (ms)",desc = "Fixed prediction offset in ms added on top of your real ping compensation — tune until hits land", def = math.floor(TT.Config.PredictionTime * 1000), min = 0, max = 500, rounding = true, callback = function(v) TT.Config.PredictionTime=v/1000; saveSilentAimSettings() end })
 
 local fakePingSec = PredPage:section({ name = "Fake Ping", side = "left", size = 75 })
-fakePingSec:toggle({ name = "Enable Fake Ping", def = SA_FakePingEnabled, callback = function(v) SA_FakePingEnabled=v end })
-fakePingSec:slider({ name = "Ping (ms)",         def = SA_FakePingAmount,   min = 0, max = 500, rounding = true, callback = function(v) SA_FakePingAmount=v end })
+fakePingSec:toggle({ name = "Enable Fake Ping", desc = "Artificially delays your ping response to the server — can desync timing checks", def = false, callback = function(v) SA_FakePingEnabled=v end })
+fakePingSec:slider({ name = "Ping (ms)",         desc = "Amount of artificial delay added to your server ping response", def = SA_FakePingAmount, min = 0, max = 500, rounding = true, callback = function(v) SA_FakePingAmount=v end })
 
 local sphereSec = PredPage:section({ name = "Prediction Sphere", side = "right", size = 165 })
-sphereSec:toggle({ name = "Enable Sphere",  def = TT.Config.PredictionSphere.Enabled,       callback = function(v) TT.Config.PredictionSphere.Enabled=v; if not v and TT.PredictionVisualization then TT.PredictionVisualization.Transparency=1 end; saveSilentAimSettings() end })
-sphereSec:toggle({ name = "Trail Effect",   def = TT.Config.PredictionSphere.TrailEffect,   callback = function(v) TT.Config.PredictionSphere.TrailEffect=v; saveSilentAimSettings() end })
-sphereSec:toggle({ name = "Rainbow Effect", def = TT.Config.PredictionSphere.RainbowEffect, callback = function(v) TT.Config.PredictionSphere.RainbowEffect=v; if not v and TT._rainbowConnection then TT._rainbowConnection:Disconnect(); TT._rainbowConnection=nil end; saveSilentAimSettings() end })
-sphereSec:toggle({ name = "Pulse Effect",   def = TT.Config.PredictionSphere.PulseEffect,   callback = function(v) TT.Config.PredictionSphere.PulseEffect=v; saveSilentAimSettings() end })
-sphereSec:slider({ name = "Size",         def = TT.Config.PredictionSphere.Size,                        min = 1, max = 20, rounding = true, callback = function(v) TT.Config.PredictionSphere.Size=v; if TT.PredictionVisualization then TT.PredictionVisualization.Size=Vector3.one*v end; saveSilentAimSettings() end })
-sphereSec:slider({ name = "Transparency", def = math.floor(TT.Config.PredictionSphere.Transparency*10), min = 0, max = 10, rounding = true, callback = function(v) TT.Config.PredictionSphere.Transparency=v/10; saveSilentAimSettings() end })
+sphereSec:toggle({ name = "Enable Sphere",  desc = "Shows a floating sphere at the predicted hit point so you can visually verify your lead", def = false, callback = function(v) TT.Config.PredictionSphere.Enabled=v; if not v and TT.PredictionVisualization then TT.PredictionVisualization.Transparency=1 end; saveSilentAimSettings() end })
+sphereSec:toggle({ name = "Trail Effect",   desc = "Adds a motion trail to the sphere that follows the target's predicted path", def = false, callback = function(v) TT.Config.PredictionSphere.TrailEffect=v; saveSilentAimSettings() end })
+sphereSec:toggle({ name = "Rainbow Effect", desc = "Cycles the sphere through all hue values continuously", def = false, callback = function(v) TT.Config.PredictionSphere.RainbowEffect=v; if v then SA_StartRainbow() else SA_StopRainbow() end; saveSilentAimSettings() end })
+sphereSec:toggle({ name = "Pulse Effect",   desc = "Makes the sphere grow and shrink rhythmically", def = false, callback = function(v) TT.Config.PredictionSphere.PulseEffect=v; saveSilentAimSettings() end })
+sphereSec:slider({ name = "Size",         desc = "Diameter of the prediction sphere in studs", def = TT.Config.PredictionSphere.Size, min = 1, max = 20, rounding = true, callback = function(v) TT.Config.PredictionSphere.Size=v; if TT.PredictionVisualization then TT.PredictionVisualization.Size=Vector3.one*v end; saveSilentAimSettings() end })
+sphereSec:slider({ name = "Transparency", desc = "Opacity of the sphere — 10 = invisible, 0 = solid", def = math.floor(TT.Config.PredictionSphere.Transparency*10), min = 0, max = 10, rounding = true, callback = function(v) TT.Config.PredictionSphere.Transparency=v/10; saveSilentAimSettings() end })
 
 local serverSec = MiscPage:section({ name = "Server", side = "left", size = 75 })
-serverSec:button({ name = "Hop Server", callback = function() coroutine.wrap(HopServer)() end })
-serverSec:button({ name = "Rejoin",     callback = function() RejoinServer() end })
+serverSec:button({ name = "Hop Server", desc = "Jumps to a different server with an open slot — skips already-visited ones for 30 minutes", callback = function() coroutine.wrap(HopServer)() end })
+serverSec:button({ name = "Rejoin",     desc = "Teleports you back into this exact same server instance", callback = function() RejoinServer() end })
 
 local scriptSec = MiscPage:section({ name = "Script", side = "left", size = 50 })
-scriptSec:button({ name = "Kill Script", callback = function()
+scriptSec:button({ name = "Kill Script", desc = "Cleans up all hooks, highlights, threads and GUI elements — safely unloads the script", callback = function()
 	pcall(function() if _G.ADConnect then _G.ADConnect:Disconnect() end end)
 	pcall(function() if _G.Boosted   then _G.Boosted:Disconnect()   end end)
 	pcall(function() if TT.PredictionVisualization then TT.PredictionVisualization:Destroy() end end)
 	pcall(function() if TT._rainbowConnection then TT._rainbowConnection:Disconnect() end end)
 	pcall(function() TT:RemoveAllHighlights() end)
 	pcall(function() SA_ScreenGui:Destroy() end)
-	game:GetService("CoreGui"):FindFirstChild(W.screen.Name):Destroy()
+	pcall(function() local s = game:GetService("CoreGui"):FindFirstChild(W.screen.Name); if s then s:Destroy() end end)
 end })
 
 local webhookSec = MiscPage:section({ name = "Webhook", side = "left", size = 185 })
-webhookSec:textbox({ name = "URL",          def = _G.CurrentSettings.Webhook.URL,          placeholder = "https://discord.com/api/webhooks/...", callback = function(v) _G.CurrentSettings.Webhook.URL=v;          scheduleSettingsSave() end })
-webhookSec:toggle({  name = "Send Stats",   def = _G.CurrentSettings.Webhook.SendStats,   callback = function(v) _G.CurrentSettings.Webhook.SendStats=v;   scheduleSettingsSave() end })
-webhookSec:slider({  name = "Interval (min)",def = _G.CurrentSettings.Webhook.Interval,   min = 1, max = 60, rounding = true, callback = function(v) _G.CurrentSettings.Webhook.Interval=v; scheduleSettingsSave() end })
-webhookSec:toggle({  name = "Ping Everyone", def = _G.CurrentSettings.Webhook.PingEveryone, callback = function(v) _G.CurrentSettings.Webhook.PingEveryone=v; scheduleSettingsSave() end })
-webhookSec:toggle({  name = "Kick Notifier", def = _G.CurrentSettings.Webhook.KickNotifer,  callback = function(v) _G.CurrentSettings.Webhook.KickNotifer=v;  scheduleSettingsSave() end })
+webhookSec:textbox({ name = "URL",           desc = "Your Discord webhook URL — paste it here to enable stat posting", def = _G.CurrentSettings.Webhook.URL, placeholder = "https://discord.com/api/webhooks/...", callback = function(v) _G.CurrentSettings.Webhook.URL=v; scheduleSettingsSave() end })
+webhookSec:toggle({  name = "Send Stats",    desc = "Periodically posts your in-game stats to the webhook URL above", def = false, callback = function(v) _G.CurrentSettings.Webhook.SendStats=v; scheduleSettingsSave() end })
+webhookSec:slider({  name = "Interval (min)",desc = "How often stats are posted to the webhook in minutes", def = _G.CurrentSettings.Webhook.Interval, min = 1, max = 60, rounding = true, callback = function(v) _G.CurrentSettings.Webhook.Interval=v; scheduleSettingsSave() end })
+webhookSec:toggle({  name = "Ping Everyone", desc = "Adds @everyone to each webhook message", def = false, callback = function(v) _G.CurrentSettings.Webhook.PingEveryone=v; scheduleSettingsSave() end })
+webhookSec:toggle({  name = "Kick Notifier", desc = "Sends a webhook alert if you get kicked from the server", def = false, callback = function(v) _G.CurrentSettings.Webhook.KickNotifer=v; scheduleSettingsSave() end })
 
 local perfSec = MiscPage:section({ name = "Performance", side = "right", size = 50 })
-perfSec:button({ name = "FPS Boost", callback = function() settings().Rendering.QualityLevel = Enum.QualityLevel.Level01 end })
+perfSec:button({ name = "FPS Boost", desc = "Sets graphics quality to minimum to maximise frame rate", callback = function() settings().Rendering.QualityLevel = Enum.QualityLevel.Level01 end })
