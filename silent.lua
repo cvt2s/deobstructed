@@ -326,6 +326,10 @@ function TT:IsValidTarget(player)
 		if not char then return false end
 		local humanoid = char:FindFirstChildOfClass("Humanoid")
 		if not humanoid or humanoid.Health <= 0 then return false end
+		if self.Config.IgnoreAlly then
+			local allied = LocalPlayer:FindFirstChild("PlayerFolder") and LocalPlayer.PlayerFolder:FindFirstChild("Allied")
+			if allied and allied:FindFirstChild(player.Name) then return false end
+		end
 		return true
 	end
 	return false
@@ -961,7 +965,7 @@ SA_SetupKickNotifier(_G.CurrentSettings.Webhook.KickNotifer)
 local library       = loadstring(game:HttpGet("https://raw.githubusercontent.com/imagoodpersond/puppyware/main/lib"))()
 local NotifyLibrary = loadstring(game:HttpGet("https://raw.githubusercontent.com/imagoodpersond/puppyware/main/notify"))()
 
-local W = library:new({ name = "[⚖️BALANCE!] Ro-Ghoul [ALPHA]", color = Color3.fromRGB(0, 210, 255) })
+local W = library:new({ name = "", color = Color3.fromRGB(0, 210, 255) })
 
 local SilentAimPage = W:page({ name = "Silent Aim" })
 local PredPage      = W:page({ name = "Prediction" })
@@ -971,6 +975,7 @@ SilentAimPage:openpage()
 
 local saSec = SilentAimPage:section({ name = "Silent Aim", side = "left", size = 150 })
 saSec:toggle({ name = "Enable Silent Aim",       desc = "Redirects your hit CFrame to the predicted target on each attack — enable only when you need it", def = TT.Config.Enabled, callback = function(v) TT.Config.Enabled=v; saveSilentAimSettings() end })
+saSec:toggle({ name = "Ignore Allies",           desc = "Skips anyone in your in-game ally list — ally teammates normally and they won't be targeted", def = TT.Config.IgnoreAlly, callback = function(v) TT.Config.IgnoreAlly=v; saveSilentAimSettings() end })
 saSec:toggle({ name = "Silent Mouse (ClipWing)", desc = "Shifts arg3 (screen pos) onto the target — makes hits connect even when your crosshair is way off", def = TT.Config.MouseSilent, callback = function(v) SA_MouseSilent=v; TT.Config.MouseSilent=v; saveSilentAimSettings() end })
 saSec:toggle({ name = "Longer Hit",              desc = "Sends the target HRP CFrame as arg4 — can extend hit range slightly", def = SA_LongerHit, callback = function(v) SA_LongerHit=v end })
 saSec:toggle({ name = "Use Roster CF",           desc = "Passes target root CFrame as arg4 — experimental", def = SA_UseRosterCF, callback = function(v) SA_UseRosterCF=v end })
