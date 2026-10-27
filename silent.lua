@@ -186,7 +186,7 @@ end
 local updateCharData = game:GetService("ReplicatedStorage"):FindFirstChild("Remotes")
 	and game:GetService("ReplicatedStorage").Remotes:FindFirstChild("UpdateCharData")
 
-local puppyware = loadstring(game:HttpGet("https://raw.githubusercontent.com/r0cu3elite/PuppywareUI/main/source.lua"))()
+local puppyware = loadstring(game:HttpGet("https://raw.githubusercontent.com/imagoodpersond/puppyware/main/lib"))()
 local puppywareWindow = puppyware:Window({ accent = Color3.fromRGB(0, 210, 255) })
 
 local function buildSilentAimPage()
