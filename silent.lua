@@ -1,1121 +1,930 @@
-if getgenv().ScriptAlreadyLoaded then
-	warn("[RG] already loaded")
-	return
-end
-getgenv().ScriptAlreadyLoaded = true
-
+-- Auto Block doesnt work FYI
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Lighting = game:GetService("Lighting")
+local TweenService = game:GetService("TweenService")
 local LocalPlayer = Players.LocalPlayer
-local Camera = workspace.CurrentCamera
+local CurrentCamera = workspace.CurrentCamera
+local HttpService = game:GetService("HttpService")
 
-local SETTINGS_FILE = "rg_settings.json"
-local SILENTAIM_FILE = "rg_aim.json"
+local scriptKilled = false
+local longerHit = false
+local useRosterCFrame = false
 
-local scriptIsKilled = false
-
-local Remotes = ReplicatedStorage:WaitForChild("Remotes", 10)
-local UpdateCharData = Remotes and Remotes:FindFirstChild("UpdateCharData")
-
-getgenv().SilentAim = getgenv().SilentAim or {}
-local SilentAim = getgenv().SilentAim
-
-SilentAim.Enabled = SilentAim.Enabled or false
-SilentAim.Mode = SilentAim.Mode or "Blacklist"
-SilentAim.IgnoreAlly = SilentAim.IgnoreAlly or false
-SilentAim.LongerHit = SilentAim.LongerHit or false
-SilentAim.UseRosterCF = SilentAim.UseRosterCF or false
-SilentAim.MouseSilent = SilentAim.MouseSilent or false
-SilentAim.TargetPart = SilentAim.TargetPart or "HumanoidRootPart"
-
-SilentAim.Physics = SilentAim.Physics or {
-	SkillSpeed = 1000,
-	PredictionTime = 0.15,
-	Interval = 1/30,
-	PingMultiplier = 0.75,
-	DashThreshold = 80,
-	DashLeadTime = 0.08,
+local silentAimConfig = {
+	Enabled = false,
+	Mode = "Blacklist",
+	IgnoreAlly = false,
+	WhitelistedPlayers = {},
+	BlacklistedPlayers = {},
+	FOV = {
+		Enabled = false,
+		Radius = 300,
+		Visible = false,
+		Thickness = 2,
+		Color = Color3.new(1, 1, 1),
+	},
+	Highlight = {
+		Enabled = false,
+		FillColor = Color3.fromRGB(255, 255, 255),
+		OutlineColor = Color3.fromRGB(255, 255, 255),
+		FillTransparency = 0.5,
+		OutlineTransparency = 0,
+	},
+	PredictionSphere = {
+		Enabled = false,
+		Color = Color3.fromRGB(255, 0, 0),
+		Transparency = 0.5,
+		Size = 3,
+		Trail = false,
+		Rainbow = false,
+		Pulse = false,
+	},
+	MouseSilent = false,
 }
 
-SilentAim.FakePing = SilentAim.FakePing or {
+local TargetTracker = {
+	CurrentTarget = nil,
+	PredictedCFrame = nil,
+	TargetScreenPosition = nil,
+	SphereVisualization = nil,
+	SphereTrail = nil,
+	TargetIsStunned = false,
+	Config = silentAimConfig,
+	Highlights = {},
+	FieldOfViewFrame = nil,
+	RainbowConnection = nil,
+	PulseConnection = nil,
+}
+
+local AutoBlock = {
+	Enabled = false,
+	Window = 0.4,
+	BlockConnection = nil,
+	UnblockThread = nil,
+}
+
+local FakePing = {
 	Enabled = false,
 	Amount = 0,
+	Locked = false,
 }
 
-SilentAim.FOV = SilentAim.FOV or {
-	Enabled = false,
-	Radius = 300,
-	Visible = false,
-	Thickness = 2,
-	Color = Color3.new(1, 1, 1),
-}
+local savedData = {}
 
-SilentAim.Highlight = SilentAim.Highlight or {
-	Enabled = false,
-	OutlineColor = Color3.new(0, 1, 0),
-	OutlineTransparency = 0.5,
-	FillColor = Color3.new(1, 0, 0),
-	FillTransparency = 0.8,
-}
-
-SilentAim.DirectionLine = SilentAim.DirectionLine or {
-	Enabled = false,
-	Color = Color3.new(1, 1, 1),
-	Thickness = 2,
-}
-
-SilentAim.Humanize = SilentAim.Humanize or {
-	Enabled = false,
-	Spread = 0.5,
-}
-
-SilentAim.Whitelist = SilentAim.Whitelist or {}
-SilentAim.Blacklist = SilentAim.Blacklist or {}
-SilentAim.CurrentTarget = nil
-SilentAim.PredictedCF = nil
-SilentAim.ScreenPos = nil
-SilentAim.TargetGetAttacked = false
-SilentAim.PlayerList = {}
-SilentAim.Highlights = {}
-
-_G.CurrentSettings = _G.CurrentSettings or {
-	AntiDelay = false,
-	Webhook = {
-		Enabled = false,
-		URL = "",
-		SendStats = false,
-		Interval = 60,
-		PingEveryone = false,
-		KickNotifier = false,
-	},
-}
-
-_G.NoDelay = _G.NoDelay or false
-_G.AntiDelayConnection = nil
-
-local LightingState = {
-	Active = false,
-	FullBrightActive = false,
-	SavedProperties = {},
-	SavedSky = nil,
-	LocalTransparencyConnection = nil,
-}
-
-local CameraState = {
-	FieldOfView = 90,
-	FieldOfViewConnection = nil,
-}
-
-local historyByPlayer = {}
-local predictionError = Vector3.zero
-local previousSmoothedVelocity = nil
-local lastPredictedPosition = nil
-local trackingConnection = nil
-
-local warnedErrors = {}
-local function warnOnce(key, message)
-	if warnedErrors[key] then return end
-	warnedErrors[key] = true
-	warn("[RG] " .. message)
+local function saveData()
+	local config = TargetTracker.Config
+	savedData = {
+		Enabled = config.Enabled,
+		Mode = config.Mode,
+		IgnoreAlly = config.IgnoreAlly,
+		WhitelistedPlayers = config.WhitelistedPlayers,
+		BlacklistedPlayers = config.BlacklistedPlayers,
+		FOVEnabled = config.FOV.Enabled,
+		FOVRadius = config.FOV.Radius,
+		FOVVisible = config.FOV.Visible,
+		FOVThickness = config.FOV.Thickness,
+		FOVColor = config.FOV.Color,
+		HighlightEnabled = config.Highlight.Enabled,
+		HighlightFillColor = config.Highlight.FillColor,
+		HighlightOutlineColor = config.Highlight.OutlineColor,
+		HighlightFillTransparency = config.Highlight.FillTransparency,
+		HighlightOutlineTransparency = config.Highlight.OutlineTransparency,
+		SphereEnabled = config.PredictionSphere.Enabled,
+		SphereColor = config.PredictionSphere.Color,
+		SphereTransparency = config.PredictionSphere.Transparency,
+		SphereSize = config.PredictionSphere.Size,
+		SphereTrail = config.PredictionSphere.Trail,
+		SphereRainbow = config.PredictionSphere.Rainbow,
+		SpherePulse = config.PredictionSphere.Pulse,
+		MouseSilent = config.MouseSilent,
+		LongerHit = longerHit,
+		UseRosterCFrame = useRosterCFrame,
+		FakePingEnabled = FakePing.Enabled,
+		FakePingAmount = FakePing.Amount,
+		AutoBlockEnabled = AutoBlock.Enabled,
+		AutoBlockWindow = AutoBlock.Window,
+	}
 end
 
-local function recordSample(player, root)
-	if not historyByPlayer[player] then
-		historyByPlayer[player] = {}
-	end
-	local historyBuffer = historyByPlayer[player]
-	table.insert(historyBuffer, {
-		time = tick(),
-		position = root.Position,
-		velocity = root.AssemblyLinearVelocity or root.Velocity,
-	})
-	while #historyBuffer > 8 do
-		table.remove(historyBuffer, 1)
-	end
+local function loadData()
+	if not next(savedData) then return end
+	local config = TargetTracker.Config
+	config.Enabled = savedData.Enabled or false
+	config.Mode = savedData.Mode or "Blacklist"
+	config.IgnoreAlly = savedData.IgnoreAlly or false
+	config.WhitelistedPlayers = savedData.WhitelistedPlayers or {}
+	config.BlacklistedPlayers = savedData.BlacklistedPlayers or {}
+	config.FOV.Enabled = savedData.FOVEnabled or false
+	config.FOV.Radius = savedData.FOVRadius or 300
+	config.FOV.Visible = savedData.FOVVisible or false
+	config.FOV.Thickness = savedData.FOVThickness or 2
+	config.FOV.Color = savedData.FOVColor or Color3.new(1, 1, 1)
+	config.Highlight.Enabled = savedData.HighlightEnabled or false
+	config.Highlight.FillColor = savedData.HighlightFillColor or Color3.fromRGB(255, 255, 255)
+	config.Highlight.OutlineColor = savedData.HighlightOutlineColor or Color3.fromRGB(255, 255, 255)
+	config.Highlight.FillTransparency = savedData.HighlightFillTransparency or 0.5
+	config.Highlight.OutlineTransparency = savedData.HighlightOutlineTransparency or 0
+	config.PredictionSphere.Enabled = savedData.SphereEnabled or false
+	config.PredictionSphere.Color = savedData.SphereColor or Color3.fromRGB(255, 0, 0)
+	config.PredictionSphere.Transparency = savedData.SphereTransparency or 0.5
+	config.PredictionSphere.Size = savedData.SphereSize or 3
+	config.PredictionSphere.Trail = savedData.SphereTrail or false
+	config.PredictionSphere.Rainbow = savedData.SphereRainbow or false
+	config.PredictionSphere.Pulse = savedData.SpherePulse or false
+	config.MouseSilent = savedData.MouseSilent or false
+	longerHit = savedData.LongerHit or false
+	useRosterCFrame = savedData.UseRosterCFrame or false
+	FakePing.Enabled = savedData.FakePingEnabled or false
+	FakePing.Amount = savedData.FakePingAmount or 0
+	AutoBlock.Enabled = savedData.AutoBlockEnabled or false
+	AutoBlock.Window = savedData.AutoBlockWindow or 0.4
 end
 
-local function smoothedVelocity(player, root)
-	local historyBuffer = historyByPlayer[player]
-	if not historyBuffer or #historyBuffer < 2 then
-		return root.AssemblyLinearVelocity or root.Velocity
-	end
-	local weightedSum = Vector3.zero
-	local weightedTotal = 0
-	for i = 2, #historyBuffer do
-		local dt = historyBuffer[i].time - historyBuffer[i-1].time
-		if dt > 0 then
-			local frameVelocity = (historyBuffer[i].position - historyBuffer[i-1].position) / dt
-			weightedSum = weightedSum + frameVelocity * i
-			weightedTotal = weightedTotal + i
+function TargetTracker:removeAllHighlights()
+	for _, highlight in pairs(self.Highlights) do
+		if highlight and highlight.Parent then
+			highlight:Destroy()
 		end
 	end
-	if weightedTotal <= 0 then return root.AssemblyLinearVelocity or root.Velocity end
-	return weightedSum / weightedTotal
+	self.Highlights = {}
 end
 
-local function getAcceleration(player)
-	local historyBuffer = historyByPlayer[player]
-	if not historyBuffer or #historyBuffer < 3 then return Vector3.zero end
-	local velocitySamples = {}
-	for i = 2, #historyBuffer do
-		local dt = historyBuffer[i].time - historyBuffer[i-1].time
-		if dt > 0 then
-			table.insert(velocitySamples, (historyBuffer[i].position - historyBuffer[i-1].position) / dt)
-		end
-	end
-	if #velocitySamples < 2 then return Vector3.zero end
-	local totalTime = historyBuffer[#historyBuffer].time - historyBuffer[2].time
-	if totalTime <= 0 then return Vector3.zero end
-	return (velocitySamples[#velocitySamples] - velocitySamples[1]) / totalTime
+function TargetTracker:applyHighlight(character)
+	if not self.Config.Highlight.Enabled then return end
+	if not character then return end
+	if self.Highlights[character] then return end
+	local highlight = Instance.new("Highlight")
+	highlight.FillColor = self.Config.Highlight.FillColor
+	highlight.OutlineColor = self.Config.Highlight.OutlineColor
+	highlight.FillTransparency = self.Config.Highlight.FillTransparency
+	highlight.OutlineTransparency = self.Config.Highlight.OutlineTransparency
+	highlight.Adornee = character
+	highlight.Parent = character
+	self.Highlights[character] = highlight
 end
 
-local function getConfidence(player, vel)
-	local historyBuffer = historyByPlayer[player]
-	if not historyBuffer or #historyBuffer < 3 then return 0.5 end
-	local deviationSum = 0
-	local count = 0
-	for i = 2, #historyBuffer do
-		local dt = historyBuffer[i].time - historyBuffer[i-1].time
-		if dt > 0 then
-			deviationSum = deviationSum + ((historyBuffer[i].position - historyBuffer[i-1].position) / dt - vel).Magnitude
-			count = count + 1
-		end
-	end
-	if count == 0 then return 0.5 end
-	return math.clamp(1 - (deviationSum / count) / 30, 0.2, 1)
-end
-
-local function detectMovementState(vel, previousVelocity)
-	if previousVelocity then
-		if (vel - previousVelocity).Magnitude > SilentAim.Physics.DashThreshold then
-			return "dash"
-		end
-	end
-	local verticalSpeed = math.abs(vel.Y)
-	local horizontalSpeed = Vector3.new(vel.X, 0, vel.Z).Magnitude
-	if verticalSpeed > 8 then return vel.Y > 0 and "jumping" or "falling" end
-	if horizontalSpeed < 2 then return "stationary" end
-	return "walking"
-end
-
-local function getPing()
-	local stats = game:GetService("Stats")
-	if stats then
-		local net = stats:FindFirstChild("Network")
-		if net then
-			local item = net:FindFirstChild("ServerStatsItem")
-			if item then return item.Value end
-		end
-	end
-	if LocalPlayer and LocalPlayer:GetAttribute("Ping") then
-		return LocalPlayer:GetAttribute("Ping")
-	end
-	return 80
-end
-
-local function updateErrorFeedback(target)
-	if not lastPredictedPosition then return end
-	local char = target and target.Character
-	local root = char and char:FindFirstChild("HumanoidRootPart")
-	if not root then return end
-	predictionError = (predictionError + (root.Position - lastPredictedPosition) * 0.05) * 0.95
-end
-
-function SilentAim:PredictPosition(target)
-	local char = target.Character
-	if not char then return nil end
-	local root = char:FindFirstChild("HumanoidRootPart")
-	if not root then return nil end
-	local myChar = LocalPlayer.Character
-	local myRoot = myChar and myChar:FindFirstChild("HumanoidRootPart")
-
-	recordSample(target, root)
-
-	local vel = smoothedVelocity(target, root)
-	local accel = getAcceleration(target)
-	local confidenceScore = getConfidence(target, vel)
-	local state = detectMovementState(vel, previousSmoothedVelocity)
-	previousSmoothedVelocity = vel
-
-	local pingSeconds = getPing() / 1000
-	local distance = myRoot and (root.Position - myRoot.Position).Magnitude or 0
-	local travelTime = SilentAim.Physics.SkillSpeed > 0 and distance / SilentAim.Physics.SkillSpeed or 0
-	local baseTime = pingSeconds * SilentAim.Physics.PingMultiplier + travelTime + SilentAim.Physics.PredictionTime
-	local time = baseTime * confidenceScore
-	local gravity = Vector3.new(0, -workspace.Gravity * 0.5, 0)
-
-	local predicted
-	if state == "stationary" then
-		predicted = root.Position + vel * (time * 0.2)
-	elseif state == "dash" then
-		local direction = Vector3.new(vel.X, 0, vel.Z).Unit
-		predicted = root.Position + direction * (vel.Magnitude * (time + SilentAim.Physics.DashLeadTime))
-	elseif state == "jumping" or state == "falling" then
-		local effectiveAcceleration = accel + gravity
-		predicted = root.Position + vel * time + effectiveAcceleration * (time * time * 0.5)
-	else
-		predicted = root.Position + vel * time + accel * (time * time * 0.5)
-	end
-
-	predicted = predicted + predictionError * 0.3
-
-	if SilentAim.Humanize.Enabled and SilentAim.Humanize.Spread > 0 then
-		predicted = predicted + Vector3.new(
-			(math.random() - 0.5) * SilentAim.Humanize.Spread * 2,
-			(math.random() - 0.5) * SilentAim.Humanize.Spread * 2,
-			(math.random() - 0.5) * SilentAim.Humanize.Spread * 2
-		)
-	end
-
-	lastPredictedPosition = predicted
-	return predicted, root
-end
-
-local function isValidTarget(player)
+function TargetTracker:isValidTarget(player)
 	if player == LocalPlayer then return false end
-	if not player.Character then return false end
-	if not player.Character:FindFirstChild("HumanoidRootPart") then return false end
-	local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
+	local character = player.Character
+	if not character then return false end
+	local humanoid = character:FindFirstChild("Humanoid")
 	if not humanoid or humanoid.Health <= 0 then return false end
-	if SilentAim.Mode == "Whitelist" then
-		if not SilentAim.Whitelist[player.UserId] then return false end
-	else
-		if SilentAim.Blacklist[player.UserId] then return false end
+	local config = self.Config
+	if config.IgnoreAlly then
+		local playerFolder = LocalPlayer:FindFirstChild("PlayerFolder")
+		if playerFolder then
+			local allied = playerFolder:FindFirstChild("Allied")
+			if allied and allied.Value == true then return false end
+		end
+	end
+	local name = player.Name
+	if config.Mode == "Whitelist" then
+		local found = false
+		for _, whitelisted in pairs(config.WhitelistedPlayers) do
+			if whitelisted == name then found = true break end
+		end
+		if not found then return false end
+	elseif config.Mode == "Blacklist" then
+		for _, blacklisted in pairs(config.BlacklistedPlayers) do
+			if blacklisted == name then return false end
+		end
 	end
 	return true
 end
 
-local function findBestTarget()
-	local mousePosition = UserInputService:GetMouseLocation()
-	local bestTarget = nil
-	local bestDistance = SilentAim.FOV.Enabled and SilentAim.FOV.Radius or math.huge
-	for _, player in ipairs(Players:GetPlayers()) do
-		if isValidTarget(player) then
-			local root = player.Character:FindFirstChild(SilentAim.TargetPart)
-				or player.Character:FindFirstChild("HumanoidRootPart")
-			if root then
-				local screenPosition, onScreen = Camera:WorldToViewportPoint(root.Position)
-				if onScreen then
-					local distance = (Vector2.new(screenPosition.X, screenPosition.Y) - mousePosition).Magnitude
+function TargetTracker:findNearestTarget()
+	local character = LocalPlayer.Character
+	local rootPart = character and character:FindFirstChild("HumanoidRootPart")
+	if not rootPart then return nil, nil end
+	local screenCenter = Vector2.new(CurrentCamera.ViewportSize.X / 2, CurrentCamera.ViewportSize.Y / 2)
+	local bestPlayer = nil
+	local bestDistance = math.huge
+	for _, player in pairs(Players:GetPlayers()) do
+		if self:isValidTarget(player) then
+			local targetCharacter = player.Character
+			if targetCharacter then
+				local targetRoot = targetCharacter:FindFirstChild("HumanoidRootPart")
+				if targetRoot then
+					local screenPosition, onScreen = CurrentCamera:WorldToViewportPoint(targetRoot.Position)
+					if not onScreen then continue end
+					if self.Config.FOV.Enabled then
+						local screenVector = Vector2.new(screenPosition.X, screenPosition.Y)
+						if (screenVector - screenCenter).Magnitude > self.Config.FOV.Radius then
+							continue
+						end
+					end
+					local distance = (targetRoot.Position - rootPart.Position).Magnitude
 					if distance < bestDistance then
+						bestPlayer = player
 						bestDistance = distance
-						bestTarget = player
 					end
 				end
 			end
 		end
 	end
-	return bestTarget
+	return bestPlayer, bestDistance
 end
 
-local fieldOfViewGui = Instance.new("ScreenGui")
-fieldOfViewGui.Name = "RGFieldOfView"
-fieldOfViewGui.ResetOnSpawn = false
-fieldOfViewGui.DisplayOrder = -9999
-fieldOfViewGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-local syn = rawget(_G, "syn")
-if syn and syn.protect_gui then
-	local ok, err = pcall(syn.protect_gui, fieldOfViewGui)
-	if not ok then warnOnce("protectGui", "syn.protect_gui failed: " .. tostring(err)) end
-end
-fieldOfViewGui.Parent = game:GetService("CoreGui")
-
-local fieldOfViewFrame = Instance.new("Frame")
-fieldOfViewFrame.AnchorPoint = Vector2.new(0.5, 0.5)
-fieldOfViewFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
-fieldOfViewFrame.Size = UDim2.new(0, SilentAim.FOV.Radius * 2, 0, SilentAim.FOV.Radius * 2)
-fieldOfViewFrame.BackgroundTransparency = 1
-fieldOfViewFrame.Visible = false
-fieldOfViewFrame.Parent = fieldOfViewGui
-
-local fieldOfViewCorner = Instance.new("UICorner")
-fieldOfViewCorner.CornerRadius = UDim.new(1, 0)
-fieldOfViewCorner.Parent = fieldOfViewFrame
-
-local fieldOfViewStroke = Instance.new("UIStroke")
-fieldOfViewStroke.Thickness = SilentAim.FOV.Thickness
-fieldOfViewStroke.Color = SilentAim.FOV.Color
-fieldOfViewStroke.Parent = fieldOfViewFrame
-
-local function setFieldOfViewRadius(radius)
-	SilentAim.FOV.Radius = radius
-	fieldOfViewFrame.Size = UDim2.new(0, radius * 2, 0, radius * 2)
+function TargetTracker:updateSphere()
+	local sphere = self.SphereVisualization
+	if not sphere then return end
+	local config = self.Config.PredictionSphere
+	if not config.Enabled or not self.PredictedCFrame then
+		sphere.Transparency = 1
+		if self.SphereTrail then self.SphereTrail.Enabled = false end
+		return
+	end
+	sphere.CFrame = self.PredictedCFrame
+	if not config.Pulse then
+		sphere.Size = Vector3.new(config.Size, config.Size, config.Size)
+	end
+	sphere.Transparency = config.Transparency
+	if not config.Rainbow then
+		sphere.Color = config.Color
+	end
+	if self.SphereTrail then
+		self.SphereTrail.Enabled = config.Trail
+	end
 end
 
-local directionLine = Drawing.new("Line")
-directionLine.Visible = false
-directionLine.Color = SilentAim.DirectionLine.Color
-directionLine.Thickness = SilentAim.DirectionLine.Thickness
-directionLine.Transparency = 1
-
-local function updateDrawings(root, predicted)
-	fieldOfViewFrame.Visible = SilentAim.FOV.Enabled and SilentAim.FOV.Visible
-	if SilentAim.DirectionLine.Enabled and root and predicted then
-		local fromScreenPosition, fromVisible = Camera:WorldToViewportPoint(root.Position)
-		local toScreenPosition, toVisible = Camera:WorldToViewportPoint(predicted)
-		if fromVisible and toVisible then
-			directionLine.From = Vector2.new(fromScreenPosition.X, fromScreenPosition.Y)
-			directionLine.To = Vector2.new(toScreenPosition.X, toScreenPosition.Y)
-			directionLine.Color = SilentAim.DirectionLine.Color
-			directionLine.Thickness = SilentAim.DirectionLine.Thickness
-			directionLine.Visible = true
+function TargetTracker:updateTracking()
+	if not self.Config.Enabled then
+		self.CurrentTarget = nil
+		self.PredictedCFrame = nil
+		self.TargetScreenPosition = nil
+		if self.FieldOfViewFrame then self.FieldOfViewFrame.Visible = false end
+		self:removeAllHighlights()
+		if self.SphereVisualization then self.SphereVisualization.Transparency = 1 end
+		return
+	end
+	local character = LocalPlayer.Character
+	local rootPart = character and character:FindFirstChild("HumanoidRootPart")
+	if not rootPart then return end
+	local player, _ = self:findNearestTarget()
+	if player then
+		local targetCharacter = player.Character
+		local targetRoot = targetCharacter and targetCharacter:FindFirstChild("HumanoidRootPart")
+		if targetRoot then
+			local humanoid = targetCharacter:FindFirstChild("Humanoid")
+			if humanoid then
+				local hitByValue = humanoid:FindFirstChild("HitBy")
+				local disabledByCC = humanoid:FindFirstChild("DisabledByCC")
+				if hitByValue and tostring(hitByValue.Value) == LocalPlayer.Name and disabledByCC then
+					self.TargetIsStunned = true
+				else
+					self.TargetIsStunned = false
+				end
+			else
+				self.TargetIsStunned = false
+			end
+			self.CurrentTarget = player
+			self.PredictedCFrame = targetRoot.CFrame
+			local screenPoint, onScreen = CurrentCamera:WorldToViewportPoint(targetRoot.Position)
+			if onScreen then
+				self.TargetScreenPosition = Vector2.new(screenPoint.X, screenPoint.Y)
+			end
+			for highlightCharacter, highlight in pairs(self.Highlights) do
+				if highlightCharacter ~= targetCharacter then
+					if highlight and highlight.Parent then highlight:Destroy() end
+					self.Highlights[highlightCharacter] = nil
+				end
+			end
+			self:applyHighlight(targetCharacter)
+			self:updateSphere()
 		else
-			directionLine.Visible = false
+			self.CurrentTarget = nil
+			self.PredictedCFrame = nil
+			self.TargetScreenPosition = nil
+			self:removeAllHighlights()
+			if self.SphereVisualization then self.SphereVisualization.Transparency = 1 end
+			if self.SphereTrail then self.SphereTrail.Enabled = false end
 		end
 	else
-		directionLine.Visible = false
+		self.CurrentTarget = nil
+		self.PredictedCFrame = nil
+		self.TargetScreenPosition = nil
+		self:removeAllHighlights()
+		if self.SphereVisualization then self.SphereVisualization.Transparency = 1 end
+		if self.SphereTrail then self.SphereTrail.Enabled = false end
+	end
+	if self.FieldOfViewFrame then
+		self.FieldOfViewFrame.Visible = self.Config.FOV.Visible and self.Config.Enabled
 	end
 end
 
-local function applyHighlight(player)
-	if not SilentAim.Highlight.Enabled then return end
-	if SilentAim.Highlights[player] then return end
-	local existing = player.Character and player.Character:FindFirstChildOfClass("Highlight")
-	local highlight = existing or Instance.new("Highlight")
-	highlight.OutlineColor = SilentAim.Highlight.OutlineColor
-	highlight.OutlineTransparency = SilentAim.Highlight.OutlineTransparency
-	highlight.FillColor = SilentAim.Highlight.FillColor
-	highlight.FillTransparency = SilentAim.Highlight.FillTransparency
-	if not existing and player.Character then highlight.Parent = player.Character end
-	SilentAim.Highlights[player] = highlight
+local updateCharData = nil
+local replicatedStorage = game:GetService("ReplicatedStorage")
+local remoteFolder = replicatedStorage:FindFirstChild("Remotes")
+if remoteFolder then
+	updateCharData = remoteFolder:FindFirstChild("UpdateCharData")
 end
-
-local function removeHighlight(player)
-	local highlight = SilentAim.Highlights[player]
-	if highlight then
-		highlight:Destroy()
-		SilentAim.Highlights[player] = nil
-	end
-end
-
-local function clearHighlights()
-	for player in pairs(SilentAim.Highlights) do
-		removeHighlight(player)
-	end
-end
-
-local function enableAntiDelay()
-	if _G.NoDelay then return end
-	_G.NoDelay = true
-	_G.AntiDelayConnection = RunService.Heartbeat:Connect(function()
-		local char = LocalPlayer.Character
-		if not char then return end
-		local humanoid = char:FindFirstChildOfClass("Humanoid")
-		if humanoid then humanoid:SetAttribute("Attacking", false) end
-	end)
-end
-
-local function disableAntiDelay()
-	_G.NoDelay = false
-	if _G.AntiDelayConnection then
-		_G.AntiDelayConnection:Disconnect()
-		_G.AntiDelayConnection = nil
-	end
-end
-
-_G.ToggleAntiDelay = function(enabled)
-	if enabled then enableAntiDelay() else disableAntiDelay() end
-end
-
-local function restoreLighting()
-	if not LightingState.Active then return end
-	LightingState.Active = false
-	LightingState.FullBrightActive = false
-	for key, value in pairs(LightingState.SavedProperties) do
-		Lighting[key] = value
-	end
-	if LightingState.SavedSky then
-		LightingState.SavedSky.Parent = Lighting
-		LightingState.SavedSky = nil
-	end
-	if LightingState.LocalTransparencyConnection then
-		LightingState.LocalTransparencyConnection:Disconnect()
-		LightingState.LocalTransparencyConnection = nil
-	end
-end
-
-local function applyBrightness(val)
-	if not LightingState.Active then
-		LightingState.Active = true
-		LightingState.SavedProperties = {
-			Brightness = Lighting.Brightness,
-			ClockTime = Lighting.ClockTime,
-			FogEnd = Lighting.FogEnd,
-			FogStart = Lighting.FogStart,
-			GlobalShadows = Lighting.GlobalShadows,
-			Ambient = Lighting.Ambient,
-			OutdoorAmbient = Lighting.OutdoorAmbient,
-		}
-		local sky = Lighting:FindFirstChildOfClass("Sky")
-		if sky then
-			LightingState.SavedSky = sky
-			sky.Parent = nil
+if not updateCharData then
+	for _, descendant in pairs(workspace:GetDescendants()) do
+		if descendant.Name == "UpdateCharData" then
+			updateCharData = descendant
+			break
 		end
 	end
-	local brightness = val / 10
-	Lighting.Brightness = brightness * 5
-	Lighting.Ambient = Color3.new(brightness, brightness, brightness)
-	Lighting.OutdoorAmbient = Color3.new(brightness, brightness, brightness)
-	Lighting.ShadowSoftness = 0
-	Lighting.GlobalShadows = false
-	Lighting.FogEnd = 100000
-	Lighting.FogStart = 100000
-	for _, child in pairs(Lighting:GetChildren()) do
-		if child:IsA("Sky") then child:Destroy() end
-	end
-	if not LightingState.LocalTransparencyConnection then
-		local function fixTransparency(part)
-			if part:IsA("BasePart") and part.Transparency < 1 then
-				part.LocalTransparencyModifier = 0
+end
+
+local puppyware = loadstring(game:HttpGet("https://raw.githubusercontent.com/r0cu3elite/PuppywareUI/main/source.lua"))()
+local puppywareWindow = puppyware:Window({
+	accent = Color3.fromRGB(0, 210, 255),
+})
+
+local silentAimPage = puppywareWindow:Page({ name = "Silent Aim" })
+local visualPage = puppywareWindow:Page({ name = "Visual" })
+local miscPage = puppywareWindow:Page({ name = "Misc" })
+
+local silentAimSection = silentAimPage:Section({ name = "Silent Aim" })
+local fovSection = silentAimPage:Section({ name = "FOV" })
+local antiDelaySection = silentAimPage:Section({ name = "Anti Delay" })
+local dashBoostSection = silentAimPage:Section({ name = "Dash Boost" })
+
+local fakePingSection = visualPage:Section({ name = "Fake Ping" })
+local targetSphereSection = visualPage:Section({ name = "Target Sphere" })
+
+local serverSection = miscPage:Section({ name = "Server" })
+local scriptSection = miscPage:Section({ name = "Script" })
+local webhookSection = miscPage:Section({ name = "Webhook" })
+local autoBlockSection = miscPage:Section({ name = "Auto Block" })
+local performanceSection = miscPage:Section({ name = "Performance" })
+
+silentAimSection:Toggle({
+	name = "Enable Silent Aim",
+	default = false,
+	callback = function(value)
+		TargetTracker.Config.Enabled = value
+		saveData()
+	end,
+})
+
+silentAimSection:Dropdown({
+	name = "Target Mode",
+	options = { "Blacklist", "Whitelist" },
+	default = "Blacklist",
+	callback = function(value)
+		TargetTracker.Config.Mode = value
+		saveData()
+	end,
+})
+
+silentAimSection:Toggle({
+	name = "Ignore Ally",
+	default = false,
+	callback = function(value)
+		TargetTracker.Config.IgnoreAlly = value
+		saveData()
+	end,
+})
+
+silentAimSection:Toggle({
+	name = "Mouse Silent",
+	default = false,
+	callback = function(value)
+		TargetTracker.Config.MouseSilent = value
+		saveData()
+	end,
+})
+
+silentAimSection:Toggle({
+	name = "Longer Hit",
+	default = false,
+	callback = function(value)
+		longerHit = value
+		saveData()
+	end,
+})
+
+silentAimSection:Toggle({
+	name = "Use Roster CFrame",
+	default = false,
+	callback = function(value)
+		useRosterCFrame = value
+		saveData()
+	end,
+})
+
+silentAimSection:List({
+	name = "Blacklist",
+	callback = function(list)
+		TargetTracker.Config.BlacklistedPlayers = list
+		saveData()
+	end,
+})
+
+silentAimSection:List({
+	name = "Whitelist",
+	callback = function(list)
+		TargetTracker.Config.WhitelistedPlayers = list
+		saveData()
+	end,
+})
+
+fovSection:Toggle({
+	name = "Enable FOV",
+	default = false,
+	callback = function(value)
+		TargetTracker.Config.FOV.Enabled = value
+		saveData()
+	end,
+})
+
+fovSection:Toggle({
+	name = "Show FOV Circle",
+	default = false,
+	callback = function(value)
+		TargetTracker.Config.FOV.Visible = value
+		if TargetTracker.FieldOfViewFrame then
+			TargetTracker.FieldOfViewFrame.Visible = value and TargetTracker.Config.Enabled
+		end
+		saveData()
+	end,
+})
+
+fovSection:Slider({
+	name = "FOV Radius",
+	min = 50,
+	max = 800,
+	default = 300,
+	callback = function(value)
+		TargetTracker.Config.FOV.Radius = value
+		if TargetTracker.FieldOfViewFrame then
+			TargetTracker.FieldOfViewFrame.Radius = value
+		end
+		saveData()
+	end,
+})
+
+fovSection:Slider({
+	name = "FOV Thickness",
+	min = 1,
+	max = 10,
+	default = 2,
+	callback = function(value)
+		TargetTracker.Config.FOV.Thickness = value
+		if TargetTracker.FieldOfViewFrame then
+			TargetTracker.FieldOfViewFrame.Thickness = value
+		end
+		saveData()
+	end,
+})
+
+fovSection:ColorPicker({
+	name = "FOV Color",
+	default = Color3.new(1, 1, 1),
+	callback = function(value)
+		TargetTracker.Config.FOV.Color = value
+		if TargetTracker.FieldOfViewFrame then
+			TargetTracker.FieldOfViewFrame.Color3 = value
+		end
+		saveData()
+	end,
+})
+
+antiDelaySection:Toggle({
+	name = "Enable Anti Delay",
+	default = false,
+	callback = function(value)
+		if value then
+			if getgenv().AntiDelayConnection then
+				getgenv().AntiDelayConnection:Disconnect()
+				getgenv().AntiDelayConnection = nil
 			end
-		end
-		for _, descendant in pairs(workspace:GetDescendants()) do
-			fixTransparency(descendant)
-		end
-		LightingState.LocalTransparencyConnection = workspace.DescendantAdded:Connect(fixTransparency)
-	end
-end
-
-local function setCameraFieldOfView(fov)
-	CameraState.FieldOfView = fov
-	local ok, err = pcall(function() workspace.CurrentCamera.FieldOfView = fov end)
-	if not ok then warnOnce("setCameraFOV", "failed to set camera FOV: " .. tostring(err)) end
-	if not CameraState.FieldOfViewConnection then
-		CameraState.FieldOfViewConnection = workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(function()
-			task.defer(function()
-				local ok2, err2 = pcall(function() workspace.CurrentCamera.FieldOfView = CameraState.FieldOfView end)
-				if not ok2 then warnOnce("setCameraFOVDefer", "camera FOV restore failed: " .. tostring(err2)) end
+			getgenv().AntiDelayConnection = RunService.Heartbeat:Connect(function()
+				if scriptKilled then
+					getgenv().AntiDelayConnection:Disconnect()
+					getgenv().AntiDelayConnection = nil
+					return
+				end
+				local character = LocalPlayer.Character
+				if not character then return end
+				local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
+				if not humanoidRootPart then return end
+				if updateCharData then
+					pcall(function()
+						updateCharData:FireServer(humanoidRootPart.CFrame, Vector2.new(0, 0), humanoidRootPart.CFrame)
+					end)
+				end
 			end)
-		end)
-	end
-end
-
-_G.HopServer = function()
-	game:GetService("TeleportService"):TeleportToPlaceInstance(game.PlaceId, game.JobId)
-end
-
-_G.RejoinServer = function()
-	game:GetService("TeleportService"):Teleport(game.PlaceId, LocalPlayer)
-end
-
-local function loadSettings()
-	if not (readfile and isfile(SETTINGS_FILE)) then return end
-	local ok, data = pcall(function()
-		return game:GetService("HttpService"):JSONDecode(readfile(SETTINGS_FILE))
-	end)
-	if not ok or not data then
-		warnOnce("loadSettings", "failed to load settings file")
-		return
-	end
-	for key, value in pairs(data) do
-		_G.CurrentSettings[key] = value
-	end
-end
-
-local function saveSettings()
-	if not writefile then return end
-	local ok, encoded = pcall(function()
-		return game:GetService("HttpService"):JSONEncode(_G.CurrentSettings)
-	end)
-	if ok then
-		writefile(SETTINGS_FILE, encoded)
-	else
-		warnOnce("saveSettings", "failed to encode settings")
-	end
-end
-
-local function loadSilentAimSettings()
-	if not (readfile and isfile(SILENTAIM_FILE)) then return end
-	local ok, data = pcall(function()
-		return game:GetService("HttpService"):JSONDecode(readfile(SILENTAIM_FILE))
-	end)
-	if not ok or not data then
-		warnOnce("loadSilentAimSettings", "failed to load silent aim settings file")
-		return
-	end
-	for _, key in ipairs({"Enabled","Mode","IgnoreAlly","LongerHit","UseRosterCF","MouseSilent","TargetPart"}) do
-		if data[key] ~= nil then SilentAim[key] = data[key] end
-	end
-	if data.Physics then
-		for key, value in pairs(data.Physics) do
-			if SilentAim.Physics[key] ~= nil and type(value) ~= "table" then
-				SilentAim.Physics[key] = value
+		else
+			if getgenv().AntiDelayConnection then
+				getgenv().AntiDelayConnection:Disconnect()
+				getgenv().AntiDelayConnection = nil
 			end
 		end
-	end
-	if data.FOV then
-		for key, value in pairs(data.FOV) do
-			if key ~= "Color" and SilentAim.FOV[key] ~= nil then SilentAim.FOV[key] = value end
-		end
-	end
-	if data.FakePing then
-		for key, value in pairs(data.FakePing) do
-			if SilentAim.FakePing[key] ~= nil then SilentAim.FakePing[key] = value end
-		end
-	end
-	if data.Humanize then
-		for key, value in pairs(data.Humanize) do
-			if SilentAim.Humanize[key] ~= nil then SilentAim.Humanize[key] = value end
-		end
-	end
-	if data.DirectionLine then
-		for key, value in pairs(data.DirectionLine) do
-			if key ~= "Color" and SilentAim.DirectionLine[key] ~= nil then SilentAim.DirectionLine[key] = value end
-		end
-	end
-end
+	end,
+})
 
-local function saveSilentAimSettings()
-	if not writefile then return end
-	local snapshot = {
-		Enabled = SilentAim.Enabled,
-		Mode = SilentAim.Mode,
-		IgnoreAlly = SilentAim.IgnoreAlly,
-		LongerHit = SilentAim.LongerHit,
-		UseRosterCF = SilentAim.UseRosterCF,
-		MouseSilent = SilentAim.MouseSilent,
-		TargetPart = SilentAim.TargetPart,
-		Physics = {
-			SkillSpeed = SilentAim.Physics.SkillSpeed,
-			PredictionTime = SilentAim.Physics.PredictionTime,
-			Interval = SilentAim.Physics.Interval,
-			PingMultiplier = SilentAim.Physics.PingMultiplier,
-			DashThreshold = SilentAim.Physics.DashThreshold,
-			DashLeadTime = SilentAim.Physics.DashLeadTime,
-		},
-		FOV = {
-			Enabled = SilentAim.FOV.Enabled,
-			Radius = SilentAim.FOV.Radius,
-			Visible = SilentAim.FOV.Visible,
-			Thickness = SilentAim.FOV.Thickness,
-		},
-		FakePing = {
-			Enabled = SilentAim.FakePing.Enabled,
-			Amount = SilentAim.FakePing.Amount,
-		},
-		Humanize = {
-			Enabled = SilentAim.Humanize.Enabled,
-			Spread = SilentAim.Humanize.Spread,
-		},
-		DirectionLine = {
-			Enabled = SilentAim.DirectionLine.Enabled,
-			Thickness = SilentAim.DirectionLine.Thickness,
-		},
-	}
-	local ok, encoded = pcall(function()
-		return game:GetService("HttpService"):JSONEncode(snapshot)
-	end)
-	if ok then
-		writefile(SILENTAIM_FILE, encoded)
-	else
-		warnOnce("saveSilentAimSettings", "failed to encode silent aim settings")
-	end
-end
+_G.DashSpeed = _G.DashSpeed or 4250
 
-local function setupFakePing()
-	if not SilentAim.FakePing.Enabled or SilentAim.FakePing.Amount <= 0 then return end
-	local remote = Remotes and Remotes:FindFirstChild("GetPing")
-	if not remote then
-		warnOnce("fakePingRemote", "GetPing remote not found — fake ping disabled")
-		return
-	end
-	remote.OnClientInvoke = function(...)
-		task.wait(SilentAim.FakePing.Amount / 1000)
-		return ...
-	end
-end
+dashBoostSection:Toggle({
+	name = "Enable Dash Boost",
+	default = false,
+	callback = function(value)
+		if value then
+			if getgenv().DashBoostConnection then
+				getgenv().DashBoostConnection:Disconnect()
+				getgenv().DashBoostConnection = nil
+			end
+			getgenv().DashBoostConnection = RunService.Heartbeat:Connect(function()
+				if scriptKilled then
+					getgenv().DashBoostConnection:Disconnect()
+					getgenv().DashBoostConnection = nil
+					return
+				end
+				local character = LocalPlayer.Character
+				if not character then return end
+				local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
+				if not humanoidRootPart then return end
+				local velocity = humanoidRootPart.AssemblyLinearVelocity
+				local speed = velocity.Magnitude
+				if speed > 50 and speed < _G.DashSpeed then
+					humanoidRootPart.AssemblyLinearVelocity = velocity.Unit * _G.DashSpeed
+				end
+			end)
+		else
+			if getgenv().DashBoostConnection then
+				getgenv().DashBoostConnection:Disconnect()
+				getgenv().DashBoostConnection = nil
+			end
+		end
+	end,
+})
 
-local function startTracking()
-	if trackingConnection then return end
-	trackingConnection = RunService.Heartbeat:Connect(function()
-		if scriptIsKilled or not SilentAim.Enabled then
-			SilentAim.CurrentTarget = nil
-			SilentAim.PredictedCF = nil
-			SilentAim.ScreenPos = nil
-			updateDrawings(nil, nil)
-			clearHighlights()
-			return
+dashBoostSection:Slider({
+	name = "Dash Speed",
+	min = 1000,
+	max = 10000,
+	default = 4250,
+	callback = function(value)
+		_G.DashSpeed = value
+	end,
+})
+
+fakePingSection:Toggle({
+	name = "Enable Fake Ping",
+	default = false,
+	callback = function(value)
+		FakePing.Enabled = value
+		saveData()
+	end,
+})
+
+fakePingSection:Slider({
+	name = "Fake Ping Amount",
+	min = 0,
+	max = 500,
+	default = 0,
+	callback = function(value)
+		FakePing.Amount = value
+		saveData()
+	end,
+})
+
+fakePingSection:Toggle({
+	name = "Lock Fake Ping",
+	default = false,
+	callback = function(value)
+		FakePing.Locked = value
+		saveData()
+	end,
+})
+
+targetSphereSection:Toggle({
+	name = "Enable Target Sphere",
+	default = false,
+	callback = function(value)
+		TargetTracker.Config.PredictionSphere.Enabled = value
+		if not value and TargetTracker.SphereVisualization then
+			TargetTracker.SphereVisualization.Transparency = 1
 		end
-		if SilentAim.CurrentTarget then
-			updateErrorFeedback(SilentAim.CurrentTarget)
+		saveData()
+	end,
+})
+
+targetSphereSection:ColorPicker({
+	name = "Sphere Color",
+	default = Color3.fromRGB(255, 0, 0),
+	callback = function(value)
+		TargetTracker.Config.PredictionSphere.Color = value
+		if TargetTracker.SphereVisualization and not TargetTracker.Config.PredictionSphere.Rainbow then
+			TargetTracker.SphereVisualization.Color = value
 		end
-		local target = findBestTarget()
-		SilentAim.CurrentTarget = target
-		if not target then
-			SilentAim.PredictedCF = nil
-			SilentAim.ScreenPos = nil
-			updateDrawings(nil, nil)
-			return
+		saveData()
+	end,
+})
+
+targetSphereSection:Slider({
+	name = "Sphere Transparency",
+	min = 0,
+	max = 1,
+	default = 0.5,
+	callback = function(value)
+		TargetTracker.Config.PredictionSphere.Transparency = value
+		saveData()
+	end,
+})
+
+targetSphereSection:Slider({
+	name = "Sphere Size",
+	min = 1,
+	max = 20,
+	default = 3,
+	callback = function(value)
+		TargetTracker.Config.PredictionSphere.Size = value
+		saveData()
+	end,
+})
+
+targetSphereSection:Toggle({
+	name = "Sphere Trail",
+	default = false,
+	callback = function(value)
+		TargetTracker.Config.PredictionSphere.Trail = value
+		if TargetTracker.SphereTrail then
+			TargetTracker.SphereTrail.Enabled = value and TargetTracker.Config.PredictionSphere.Enabled
 		end
-		if SilentAim.Highlight.Enabled then
-			applyHighlight(target)
+		saveData()
+	end,
+})
+
+targetSphereSection:Toggle({
+	name = "Rainbow Sphere",
+	default = false,
+	callback = function(value)
+		TargetTracker.Config.PredictionSphere.Rainbow = value
+		if not value then
+			if TargetTracker.RainbowConnection then
+				TargetTracker.RainbowConnection:Disconnect()
+				TargetTracker.RainbowConnection = nil
+			end
+		else
+			if TargetTracker.RainbowConnection then TargetTracker.RainbowConnection:Disconnect() end
+			TargetTracker.RainbowConnection = RunService.Heartbeat:Connect(function()
+				if scriptKilled then
+					TargetTracker.RainbowConnection:Disconnect()
+					TargetTracker.RainbowConnection = nil
+					return
+				end
+				if TargetTracker.SphereVisualization and TargetTracker.Config.PredictionSphere.Rainbow then
+					local hue = (tick() % 5) / 5
+					TargetTracker.SphereVisualization.Color = Color3.fromHSV(hue, 1, 1)
+				end
+			end)
 		end
-		local predicted, root = SilentAim:PredictPosition(target)
-		if not predicted or not root then
-			SilentAim.PredictedCF = nil
-			updateDrawings(nil, nil)
-			return
+		saveData()
+	end,
+})
+
+targetSphereSection:Toggle({
+	name = "Pulse Sphere",
+	default = false,
+	callback = function(value)
+		TargetTracker.Config.PredictionSphere.Pulse = value
+		if not value then
+			if TargetTracker.PulseConnection then
+				TargetTracker.PulseConnection:Disconnect()
+				TargetTracker.PulseConnection = nil
+			end
+		else
+			if TargetTracker.PulseConnection then TargetTracker.PulseConnection:Disconnect() end
+			TargetTracker.PulseConnection = RunService.Heartbeat:Connect(function()
+				if scriptKilled then
+					TargetTracker.PulseConnection:Disconnect()
+					TargetTracker.PulseConnection = nil
+					return
+				end
+				if TargetTracker.SphereVisualization and TargetTracker.Config.PredictionSphere.Pulse then
+					local pulse = (math.sin(tick() * 4) + 1) / 2
+					local baseSize = TargetTracker.Config.PredictionSphere.Size
+					TargetTracker.SphereVisualization.Size = Vector3.new(
+						baseSize + pulse * 2,
+						baseSize + pulse * 2,
+						baseSize + pulse * 2
+					)
+				end
+			end)
 		end
-		local myChar = LocalPlayer.Character
-		local myRoot = myChar and myChar:FindFirstChild("HumanoidRootPart")
-		if myRoot then
-			SilentAim.PredictedCF = CFrame.lookAt(
-				Vector3.new(myRoot.Position.X, predicted.Y, myRoot.Position.Z),
-				Vector3.new(predicted.X, predicted.Y, predicted.Z)
-			)
+		saveData()
+	end,
+})
+
+local webhookUrl = ""
+
+webhookSection:TextBox({
+	name = "Webhook URL",
+	placeholder = "https://discord.com/api/webhooks/...",
+	callback = function(value)
+		webhookUrl = value
+	end,
+})
+
+webhookSection:Button({
+	name = "Send Test",
+	callback = function()
+		if webhookUrl == "" then return end
+		pcall(function()
+			HttpService:PostAsync(webhookUrl, HttpService:JSONEncode({
+				content = "Puppyware test message from " .. LocalPlayer.Name,
+			}))
+		end)
+	end,
+})
+
+serverSection:Button({
+	name = "Rejoin Server",
+	callback = function()
+		local TeleportService = game:GetService("TeleportService")
+		TeleportService:Teleport(game.PlaceId, LocalPlayer)
+	end,
+})
+
+serverSection:Button({
+	name = "Leave Server",
+	callback = function()
+		game:Shutdown()
+	end,
+})
+
+autoBlockSection:Toggle({
+	name = "Enable Auto Block",
+	default = false,
+	callback = function(value)
+		AutoBlock.Enabled = value
+		if value then
+			if AutoBlock.BlockConnection then AutoBlock.BlockConnection:Disconnect() end
+			AutoBlock.BlockConnection = RunService.Heartbeat:Connect(function()
+				if scriptKilled then
+					AutoBlock.BlockConnection:Disconnect()
+					AutoBlock.BlockConnection = nil
+					return
+				end
+				local character = LocalPlayer.Character
+				if not character then return end
+				local humanoid = character:FindFirstChild("Humanoid")
+				if not humanoid then return end
+				local hitBy = humanoid:FindFirstChild("HitBy")
+				if hitBy and hitBy.Value ~= "" then
+					local blockRemote = character:FindFirstChild("Block")
+					if blockRemote then
+						pcall(function() blockRemote:FireServer(true) end)
+						if AutoBlock.UnblockThread then task.cancel(AutoBlock.UnblockThread) end
+						AutoBlock.UnblockThread = task.delay(AutoBlock.Window, function()
+							pcall(function() blockRemote:FireServer(false) end)
+						end)
+					end
+				end
+			end)
+		else
+			if AutoBlock.BlockConnection then
+				AutoBlock.BlockConnection:Disconnect()
+				AutoBlock.BlockConnection = nil
+			end
 		end
-		local screenPosition, onScreen = Camera:WorldToViewportPoint(predicted)
-		if onScreen then
-			SilentAim.ScreenPos = Vector2.new(screenPosition.X, screenPosition.Y)
-		end
-		updateDrawings(root, predicted)
-	end)
-end
+		saveData()
+	end,
+})
+
+autoBlockSection:Slider({
+	name = "Block Window (s)",
+	min = 0.1,
+	max = 2.0,
+	default = 0.4,
+	callback = function(value)
+		AutoBlock.Window = value
+		saveData()
+	end,
+})
+
+performanceSection:Button({
+	name = "Garbage Collect",
+	callback = function()
+		collectgarbage("collect")
+	end,
+})
+
+scriptSection:Button({
+	name = "Save Config",
+	callback = function()
+		saveData()
+	end,
+})
+
+scriptSection:Button({
+	name = "Load Config",
+	callback = function()
+		loadData()
+	end,
+})
+
+scriptSection:Button({
+	name = "Kill Script",
+	callback = function()
+		scriptKilled = true
+		TargetTracker:removeAllHighlights()
+		if TargetTracker.RainbowConnection then TargetTracker.RainbowConnection:Disconnect() end
+		if TargetTracker.PulseConnection then TargetTracker.PulseConnection:Disconnect() end
+		if getgenv().AntiDelayConnection then getgenv().AntiDelayConnection:Disconnect() end
+		if getgenv().DashBoostConnection then getgenv().DashBoostConnection:Disconnect() end
+		if AutoBlock.BlockConnection then AutoBlock.BlockConnection:Disconnect() end
+		if TargetTracker.SphereVisualization then TargetTracker.SphereVisualization:Destroy() end
+		if TargetTracker.FieldOfViewFrame then TargetTracker.FieldOfViewFrame:Remove() end
+		pcall(function() puppywareWindow.screen:Destroy() end)
+	end,
+})
+
+local fovCircle = Drawing.new("Circle")
+fovCircle.Visible = false
+fovCircle.Filled = false
+fovCircle.Radius = silentAimConfig.FOV.Radius
+fovCircle.Thickness = silentAimConfig.FOV.Thickness
+fovCircle.Color3 = silentAimConfig.FOV.Color
+fovCircle.Position = Vector2.new(CurrentCamera.ViewportSize.X / 2, CurrentCamera.ViewportSize.Y / 2)
+TargetTracker.FieldOfViewFrame = fovCircle
+
+local spherePart = Instance.new("Part")
+spherePart.Name = "TargetSphere"
+spherePart.Shape = Enum.PartType.Ball
+spherePart.Material = Enum.Material.Neon
+spherePart.CanCollide = false
+spherePart.Anchored = true
+spherePart.Transparency = 1
+spherePart.Size = Vector3.new(3, 3, 3)
+spherePart.Color = silentAimConfig.PredictionSphere.Color
+spherePart.CastShadow = false
+spherePart.Parent = workspace
+TargetTracker.SphereVisualization = spherePart
+
+local sphereAttachment0 = Instance.new("Attachment", spherePart)
+local sphereAttachment1 = Instance.new("Attachment", spherePart)
+sphereAttachment0.Position = Vector3.new(0, 0.5, 0)
+sphereAttachment1.Position = Vector3.new(0, -0.5, 0)
+local sphereTrail = Instance.new("Trail")
+sphereTrail.Attachment0 = sphereAttachment0
+sphereTrail.Attachment1 = sphereAttachment1
+sphereTrail.Lifetime = 0.3
+sphereTrail.Enabled = false
+sphereTrail.Parent = spherePart
+TargetTracker.SphereTrail = sphereTrail
 
 if not getgenv().OriginalNamecallHook then
 	getgenv().OriginalNamecallHook = hookmetamethod(game, "__namecall", function(...)
-		local args = table.pack(...)
-		local self = args[1]
-		if scriptIsKilled
-			or not SilentAim.Enabled
-			or self ~= UpdateCharData
-			or getnamecallmethod() ~= "FireServer"
+		local arguments = table.pack(...)
+		local hookSelf = arguments[1]
+		local method = getnamecallmethod()
+
+		if scriptKilled then
+			return getgenv().OriginalNamecallHook(table.unpack(arguments, 1, arguments.n))
+		end
+
+		if FakePing.Enabled and method == "FireServer" and FakePing.Amount > 0 then
+			task.wait(FakePing.Amount / 1000)
+		end
+
+		if not TargetTracker.Config.Enabled
+			or hookSelf ~= updateCharData
+			or method ~= "FireServer"
 		then
-			return getgenv().OriginalNamecallHook(table.unpack(args, 1, args.n))
+			return getgenv().OriginalNamecallHook(table.unpack(arguments, 1, arguments.n))
 		end
-		if not SilentAim.PredictedCF or SilentAim.TargetGetAttacked then
-			return getgenv().OriginalNamecallHook(table.unpack(args, 1, args.n))
+
+		if not TargetTracker.PredictedCFrame or TargetTracker.TargetIsStunned then
+			return getgenv().OriginalNamecallHook(table.unpack(arguments, 1, arguments.n))
 		end
-		local modifiedArgs = table.pack(table.unpack(args, 1, args.n))
-		modifiedArgs[2] = SilentAim.PredictedCF
-		if (SilentAim.LongerHit or SilentAim.MouseSilent) and SilentAim.ScreenPos then
-			modifiedArgs[3] = SilentAim.ScreenPos
+
+		local modified = table.pack(table.unpack(arguments, 1, arguments.n))
+		modified[2] = TargetTracker.PredictedCFrame
+
+		if longerHit or TargetTracker.Config.MouseSilent then
+			if TargetTracker.TargetScreenPosition then
+				modified[3] = TargetTracker.TargetScreenPosition
+			end
 		end
-		if SilentAim.UseRosterCF and SilentAim.CurrentTarget then
-			local targetChar = SilentAim.CurrentTarget.Character
-			local targetRoot = targetChar and targetChar:FindFirstChild("HumanoidRootPart")
-			if targetRoot then modifiedArgs[4] = targetRoot.CFrame end
+
+		if useRosterCFrame and TargetTracker.CurrentTarget then
+			local targetCharacter = TargetTracker.CurrentTarget.Character
+			local targetRoot = targetCharacter and targetCharacter:FindFirstChild("HumanoidRootPart")
+			if targetRoot then
+				modified[4] = targetRoot.CFrame
+			end
 		end
-		return getgenv().OriginalNamecallHook(table.unpack(modifiedArgs, 1, modifiedArgs.n))
+
+		return getgenv().OriginalNamecallHook(table.unpack(modified, 1, modified.n))
 	end)
 end
 
-local puppywareWindow = loadstring(game:HttpGet("https://raw.githubusercontent.com/imagoodpersond/puppyware/main/lib"))()
-	:new({ name = "", color = Color3.fromRGB(0, 210, 255) })
+getgenv().SilentAimTracker = TargetTracker
 
-local silentAimPage = puppywareWindow:page({ name = "Silent Aim" })
-local predictionPage = puppywareWindow:page({ name = "Prediction" })
-local miscellaneousPage = puppywareWindow:page({ name = "Misc" })
-
-local ok, err = pcall(silentAimPage.openpage, silentAimPage)
-if not ok then warnOnce("openPage", "failed to open silent aim page: " .. tostring(err)) end
-
-local silentAimSection = silentAimPage:section({ name = "Silent Aim", side = "left", size = 180 })
-
-silentAimSection:toggle({
-	name = "Enable",
-	def = SilentAim.Enabled,
-	callback = function(v)
-		SilentAim.Enabled = v
-		if not v then clearHighlights() end
-	end,
-})
-
-silentAimSection:dropdown({
-	name = "Mode",
-	def = SilentAim.Mode,
-	options = {"Blacklist", "Whitelist"},
-	callback = function(v)
-		SilentAim.Mode = v
-	end,
-})
-
-silentAimSection:toggle({
-	name = "Ignore Allies",
-	def = SilentAim.IgnoreAlly,
-	callback = function(v)
-		SilentAim.IgnoreAlly = v
-	end,
-})
-
-silentAimSection:toggle({
-	name = "Silent Mouse",
-	def = SilentAim.MouseSilent,
-	callback = function(v)
-		SilentAim.MouseSilent = v
-	end,
-})
-
-silentAimSection:toggle({
-	name = "Longer Hit",
-	def = SilentAim.LongerHit,
-	callback = function(v)
-		SilentAim.LongerHit = v
-	end,
-})
-
-silentAimSection:toggle({
-	name = "Use Roster CF",
-	def = SilentAim.UseRosterCF,
-	callback = function(v)
-		SilentAim.UseRosterCF = v
-	end,
-})
-
-silentAimSection:toggle({
-	name = "Humanize",
-	def = SilentAim.Humanize.Enabled,
-	callback = function(v)
-		SilentAim.Humanize.Enabled = v
-	end,
-})
-
-silentAimSection:slider({
-	name = "Humanize Spread",
-	def = SilentAim.Humanize.Spread,
-	min = 0,
-	max = 5,
-	rounding = false,
-	callback = function(v)
-		SilentAim.Humanize.Spread = v
-	end,
-})
-
-local fieldOfViewSection = silentAimPage:section({ name = "FOV", side = "right", size = 130 })
-
-fieldOfViewSection:toggle({
-	name = "Enable FOV",
-	def = SilentAim.FOV.Enabled,
-	callback = function(v)
-		SilentAim.FOV.Enabled = v
-		if not v then fieldOfViewFrame.Visible = false end
-	end,
-})
-
-fieldOfViewSection:toggle({
-	name = "FOV Visible",
-	def = SilentAim.FOV.Visible,
-	callback = function(v)
-		SilentAim.FOV.Visible = v
-		fieldOfViewFrame.Visible = SilentAim.FOV.Enabled and v
-	end,
-})
-
-fieldOfViewSection:slider({
-	name = "Radius",
-	def = SilentAim.FOV.Radius,
-	min = 50,
-	max = 800,
-	rounding = true,
-	callback = function(v)
-		setFieldOfViewRadius(v)
-	end,
-})
-
-fieldOfViewSection:slider({
-	name = "Thickness",
-	def = SilentAim.FOV.Thickness,
-	min = 1,
-	max = 6,
-	rounding = true,
-	callback = function(v)
-		SilentAim.FOV.Thickness = v
-		fieldOfViewStroke.Thickness = v
-	end,
-})
-
-local highlightSection = silentAimPage:section({ name = "Highlight", side = "right", size = 55 })
-
-highlightSection:toggle({
-	name = "Highlight Target",
-	def = SilentAim.Highlight.Enabled,
-	callback = function(v)
-		SilentAim.Highlight.Enabled = v
-		if not v then clearHighlights() end
-	end,
-})
-
-local directionLineSection = silentAimPage:section({ name = "Direction Line", side = "right", size = 75 })
-
-directionLineSection:toggle({
-	name = "Show Direction Line",
-	def = SilentAim.DirectionLine.Enabled,
-	callback = function(v)
-		SilentAim.DirectionLine.Enabled = v
-		if not v then directionLine.Visible = false end
-	end,
-})
-
-directionLineSection:slider({
-	name = "Thickness",
-	def = SilentAim.DirectionLine.Thickness,
-	min = 1,
-	max = 5,
-	rounding = true,
-	callback = function(v)
-		SilentAim.DirectionLine.Thickness = v
-		directionLine.Thickness = v
-	end,
-})
-
-local antiDelaySection = silentAimPage:section({ name = "Anti Delay", side = "left", size = 45 })
-
-antiDelaySection:toggle({
-	name = "Enable Anti Delay",
-	def = _G.NoDelay,
-	callback = function(v)
-		_G.ToggleAntiDelay(v)
-	end,
-})
-
-local physicsSection = predictionPage:section({ name = "Physics", side = "left", size = 220 })
-
-physicsSection:slider({
-	name = "Skill Speed (studs/s)",
-	desc = "Speed your skill projectile travels — higher = less lead time needed",
-	def = SilentAim.Physics.SkillSpeed,
-	min = 100,
-	max = 5000,
-	rounding = true,
-	callback = function(v)
-		SilentAim.Physics.SkillSpeed = v
-	end,
-})
-
-physicsSection:slider({
-	name = "Prediction Time (ms)",
-	desc = "Flat extra lead time added on top of calculated travel time",
-	def = math.floor(SilentAim.Physics.PredictionTime * 1000),
-	min = 0,
-	max = 500,
-	rounding = true,
-	callback = function(v)
-		SilentAim.Physics.PredictionTime = v / 1000
-	end,
-})
-
-physicsSection:slider({
-	name = "Ping Multiplier (%)",
-	desc = "How much of your real ping is factored into prediction — 100% = full ping, 0% = ignore it",
-	def = math.floor(SilentAim.Physics.PingMultiplier * 100),
-	min = 0,
-	max = 200,
-	rounding = true,
-	callback = function(v)
-		SilentAim.Physics.PingMultiplier = v / 100
-	end,
-})
-
-physicsSection:slider({
-	name = "Dash Lead (ms)",
-	desc = "Extra lead time applied specifically when a dash is detected",
-	def = math.floor(SilentAim.Physics.DashLeadTime * 1000),
-	min = 0,
-	max = 300,
-	rounding = true,
-	callback = function(v)
-		SilentAim.Physics.DashLeadTime = v / 1000
-	end,
-})
-
-physicsSection:slider({
-	name = "Dash Threshold (studs/s)",
-	desc = "Velocity spike size that counts as a dash — lower = more sensitive",
-	def = SilentAim.Physics.DashThreshold,
-	min = 10,
-	max = 300,
-	rounding = true,
-	callback = function(v)
-		SilentAim.Physics.DashThreshold = v
-	end,
-})
-
-local fakePingSection = predictionPage:section({ name = "Fake Ping", side = "right", size = 95 })
-
-fakePingSection:toggle({
-	name = "Enable Fake Ping",
-	desc = "Delays your response to the server's ping check by the set amount",
-	def = SilentAim.FakePing.Enabled,
-	callback = function(v)
-		SilentAim.FakePing.Enabled = v
-		setupFakePing()
-	end,
-})
-
-fakePingSection:slider({
-	name = "Ping (ms)",
-	desc = "How many milliseconds of artificial delay to add",
-	def = SilentAim.FakePing.Amount,
-	min = 0,
-	max = 500,
-	rounding = true,
-	callback = function(v)
-		SilentAim.FakePing.Amount = v
-	end,
-})
-
-local serverSection = miscellaneousPage:section({ name = "Server", side = "left", size = 75 })
-
-serverSection:button({
-	name = "Hop Server",
-	callback = function()
-		coroutine.wrap(_G.HopServer)()
-	end,
-})
-
-serverSection:button({
-	name = "Rejoin",
-	callback = function()
-		_G.RejoinServer()
-	end,
-})
-
-local scriptSection = miscellaneousPage:section({ name = "Script", side = "left", size = 50 })
-
-scriptSection:button({
-	name = "Kill Script",
-	callback = function()
-		scriptIsKilled = true
-		getgenv().ScriptAlreadyLoaded = nil
-
-		SilentAim.Enabled = false
-		SilentAim.CurrentTarget = nil
-		SilentAim.PredictedCF = nil
-		SilentAim.ScreenPos = nil
-
-		if trackingConnection then
-			trackingConnection:Disconnect()
-			trackingConnection = nil
-		end
-
-		pcall(directionLine.Remove, directionLine)
-		pcall(fieldOfViewGui.Destroy, fieldOfViewGui)
-		clearHighlights()
-
-		if CameraState.FieldOfViewConnection then
-			CameraState.FieldOfViewConnection:Disconnect()
-			CameraState.FieldOfViewConnection = nil
-		end
-		pcall(function() workspace.CurrentCamera.FieldOfView = 70 end)
-
-		disableAntiDelay()
-		restoreLighting()
-		saveSilentAimSettings()
-		saveSettings()
-	end,
-})
-
-local performanceSection = miscellaneousPage:section({ name = "Performance", side = "right", size = 130 })
-
-performanceSection:button({
-	name = "FPS Boost",
-	callback = function()
-		local ok2, err2 = pcall(function()
-			settings().Rendering.QualityLevel = Enum.QualityLevel.Level01
-		end)
-		if not ok2 then warnOnce("fpsBoostQuality", "quality level change failed: " .. tostring(err2)) end
-		for _, child in pairs(Lighting:GetChildren()) do
-			if child:IsA("BlurEffect") or child:IsA("DepthOfFieldEffect") or child:IsA("SunRaysEffect")
-			or child:IsA("ColorCorrectionEffect") or child:IsA("BloomEffect") or child:IsA("AtmosphereEffect") then
-				child.Enabled = false
-			end
-		end
-		for _, descendant in pairs(workspace:GetDescendants()) do
-			if descendant:IsA("ParticleEmitter") then descendant.Enabled = false end
-		end
-	end,
-})
-
-performanceSection:toggle({
-	name = "Full Bright",
-	def = false,
-	callback = function(v)
-		LightingState.FullBrightActive = v
-		if v then applyBrightness(5) else restoreLighting() end
-	end,
-})
-
-performanceSection:slider({
-	name = "Brightness",
-	def = 5,
-	min = 1,
-	max = 10,
-	rounding = true,
-	callback = function(v)
-		if LightingState.FullBrightActive then applyBrightness(v) end
-	end,
-})
-
-performanceSection:slider({
-	name = "Camera FOV",
-	def = 90,
-	min = 70,
-	max = 120,
-	rounding = true,
-	callback = function(v)
-		setCameraFieldOfView(v)
-	end,
-})
-
-local webhookSection = miscellaneousPage:section({ name = "Webhook", side = "right", size = 185 })
-
-webhookSection:textbox({
-	name = "URL",
-	def = _G.CurrentSettings.Webhook.URL,
-	placeholder = "https://discord.com/api/webhooks/...",
-	callback = function(v)
-		_G.CurrentSettings.Webhook.URL = v
-	end,
-})
-
-webhookSection:toggle({
-	name = "Send Stats",
-	def = _G.CurrentSettings.Webhook.SendStats,
-	callback = function(v)
-		_G.CurrentSettings.Webhook.SendStats = v
-	end,
-})
-
-webhookSection:slider({
-	name = "Interval (min)",
-	def = _G.CurrentSettings.Webhook.Interval,
-	min = 1,
-	max = 60,
-	rounding = true,
-	callback = function(v)
-		_G.CurrentSettings.Webhook.Interval = v
-	end,
-})
-
-webhookSection:toggle({
-	name = "Ping Everyone",
-	def = _G.CurrentSettings.Webhook.PingEveryone,
-	callback = function(v)
-		_G.CurrentSettings.Webhook.PingEveryone = v
-	end,
-})
-
-webhookSection:toggle({
-	name = "Kick Notifier",
-	def = _G.CurrentSettings.Webhook.KickNotifier,
-	callback = function(v)
-		_G.CurrentSettings.Webhook.KickNotifier = v
-	end,
-})
-
-loadSettings()
-loadSilentAimSettings()
-setupFakePing()
-startTracking()
-
-Players.PlayerRemoving:Connect(function(player)
-	historyByPlayer[player] = nil
-	removeHighlight(player)
-	if player == LocalPlayer then
-		saveSilentAimSettings()
-		saveSettings()
+RunService.Heartbeat:Connect(function()
+	if scriptKilled then return end
+	TargetTracker:updateTracking()
+	if TargetTracker.FieldOfViewFrame then
+		TargetTracker.FieldOfViewFrame.Position = Vector2.new(
+			CurrentCamera.ViewportSize.X / 2,
+			CurrentCamera.ViewportSize.Y / 2
+		)
+		TargetTracker.FieldOfViewFrame.Radius = TargetTracker.Config.FOV.Radius
 	end
 end)
