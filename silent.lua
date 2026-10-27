@@ -5,25 +5,12 @@ local CurrentCamera = workspace.CurrentCamera
 
 local scriptKilled = false
 
-local TargetTracker = {
-	CurrentTarget = nil,
-	PredictedCFrame = nil,
-	TargetScreenPosition = nil,
-	SphereVisualization = nil,
-	SphereTrail = nil,
-	TargetIsStunned = false,
-	FieldOfViewFrame = nil,
-	MenuScreen = nil,
-	RainbowConnection = nil,
-	PulseConnection = nil,
-	Highlights = {},
+local SilentAim = {
 	Config = {
 		Enabled = false,
-		Mode = "Blacklist",
 		IgnoreAlly = false,
 		MouseSilent = false,
-		Whitelist = {},
-		Blacklist = {},
+		DirectionThreshold = 0.6,
 		FieldOfView = {
 			Enabled = false,
 			Radius = 300,
@@ -38,83 +25,111 @@ local TargetTracker = {
 			FillTransparency = 0.5,
 			OutlineTransparency = 0,
 		},
-		Sphere = {
-			Enabled = false,
-			Color = Color3.fromRGB(255, 0, 0),
-			Transparency = 0.5,
-			Size = 3,
-			Trail = false,
-			Rainbow = false,
-			Pulse = false,
-		},
+	},
+	State = {
+		CurrentTarget = nil,
+		PredictedCFrame = nil,
+		PredictedPosition = nil,
+		TargetIsStunned = false,
+		Highlights = {},
 	},
 }
 
-local FakePing = {
-	Enabled = false,
-	Amount = 0,
+local Sphere = {
+	Config = {
+		Enabled = false,
+		Color = Color3.fromRGB(255, 0, 0),
+		Transparency = 0.5,
+		Size = 3,
+		Trail = false,
+		Rainbow = false,
+		Pulse = false,
+	},
+	Part = nil,
+	Trail = nil,
+	RainbowConnection = nil,
+	PulseConnection = nil,
 }
 
-function TargetTracker:clearTarget()
-	self.CurrentTarget = nil
-	self.PredictedCFrame = nil
-	self.TargetScreenPosition = nil
-	self:removeAllHighlights()
-	if self.SphereVisualization then self.SphereVisualization.Transparency = 1 end
-	if self.SphereTrail then self.SphereTrail.Enabled = false end
+local FakePing = {
+	Config = {
+		Enabled = false,
+		Amount = 0,
+	},
+}
+
+local FieldOfView = {
+	Circle = nil,
+}
+
+local Menu = {
+	Screen = nil,
+}
+
+local function isFieldOfViewVisible()
+	return SilentAim.Config.FieldOfView.Visible and (Menu.Screen == nil or Menu.Screen.Enabled)
 end
 
-function TargetTracker:removeAllHighlights()
-	for _, highlight in pairs(self.Highlights) do
+local function removeAllHighlights()
+	for _, highlight in pairs(SilentAim.State.Highlights) do
 		if highlight and highlight.Parent then highlight:Destroy() end
 	end
-	self.Highlights = {}
+	SilentAim.State.Highlights = {}
 end
 
-function TargetTracker:applyHighlight(character)
-	if not self.Config.Highlight.Enabled or not character or self.Highlights[character] then return end
+local function applyHighlight(character)
+	local config = SilentAim.Config.Highlight
+	if not config.Enabled or not character or SilentAim.State.Highlights[character] then return end
 	local highlight = Instance.new("Highlight")
-	highlight.FillColor = self.Config.Highlight.FillColor
-	highlight.OutlineColor = self.Config.Highlight.OutlineColor
-	highlight.FillTransparency = self.Config.Highlight.FillTransparency
-	highlight.OutlineTransparency = self.Config.Highlight.OutlineTransparency
+	highlight.FillColor = config.FillColor
+	highlight.OutlineColor = config.OutlineColor
+	highlight.FillTransparency = config.FillTransparency
+	highlight.OutlineTransparency = config.OutlineTransparency
 	highlight.Adornee = character
 	highlight.Parent = character
-	self.Highlights[character] = highlight
+	SilentAim.State.Highlights[character] = highlight
 end
 
-function TargetTracker:isValidTarget(player)
+local function clearTarget()
+	SilentAim.State.CurrentTarget = nil
+	SilentAim.State.PredictedCFrame = nil
+	SilentAim.State.PredictedPosition = nil
+	removeAllHighlights()
+	if Sphere.Part then Sphere.Part.Transparency = 1 end
+	if Sphere.Trail then Sphere.Trail.Enabled = false end
+	if FieldOfView.Circle then FieldOfView.Circle.Visible = isFieldOfViewVisible() end
+end
+
+local function isValidTarget(player)
 	if player == LocalPlayer then return false end
 	local character = player.Character
 	if not character then return false end
 	local humanoid = character:FindFirstChild("Humanoid")
 	if not humanoid or humanoid.Health <= 0 then return false end
-	if self.Config.IgnoreAlly then
+	if SilentAim.Config.IgnoreAlly then
 		local playerFolder = LocalPlayer:FindFirstChild("PlayerFolder")
 		local allied = playerFolder and playerFolder:FindFirstChild("Allied")
-		if allied and allied.Value == true then return false end
+		if allied and allied:FindFirstChild(player.Name) then return false end
 	end
-	if self.Config.Mode == "Whitelist" and not self.Config.Whitelist[player.Name] then return false end
-	if self.Config.Mode == "Blacklist" and self.Config.Blacklist[player.Name] then return false end
 	return true
 end
 
-function TargetTracker:findNearestTarget(screenCenter)
+local function findNearestTarget(screenCenter)
 	local character = LocalPlayer.Character
-	local rootPart = character and character:FindFirstChild("HumanoidRootPart")
-	if not rootPart then return nil end
+	local localRoot = character and character:FindFirstChild("HumanoidRootPart")
+	if not localRoot then return nil end
 	local bestPlayer = nil
 	local bestDistance = math.huge
 	for _, player in pairs(Players:GetPlayers()) do
-		if not self:isValidTarget(player) then continue end
+		if not isValidTarget(player) then continue end
 		local targetRoot = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
 		if not targetRoot then continue end
 		local screenPosition, onScreen = CurrentCamera:WorldToViewportPoint(targetRoot.Position)
 		if not onScreen then continue end
-		if self.Config.FieldOfView.Enabled then
-			if (Vector2.new(screenPosition.X, screenPosition.Y) - screenCenter).Magnitude > self.Config.FieldOfView.Radius then continue end
+		if SilentAim.Config.FieldOfView.Enabled then
+			if (Vector2.new(screenPosition.X, screenPosition.Y) - screenCenter).Magnitude > SilentAim.Config.FieldOfView.Radius then continue end
 		end
-		local distance = (targetRoot.Position - rootPart.Position).Magnitude
+		local distance = (targetRoot.Position - localRoot.Position).Magnitude
 		if distance < bestDistance then
 			bestPlayer = player
 			bestDistance = distance
@@ -123,79 +138,82 @@ function TargetTracker:findNearestTarget(screenCenter)
 	return bestPlayer
 end
 
-function TargetTracker:updateSphere()
-	local sphere = self.SphereVisualization
-	if not sphere then return end
-	local config = self.Config.Sphere
-	if not config.Enabled or not self.PredictedPosition then
-		sphere.Transparency = 1
-		if self.SphereTrail then self.SphereTrail.Enabled = false end
+local function updateSphere()
+	local part = Sphere.Part
+	if not part then return end
+	local config = Sphere.Config
+	if not config.Enabled or not SilentAim.State.PredictedPosition then
+		part.Transparency = 1
+		if Sphere.Trail then Sphere.Trail.Enabled = false end
 		return
 	end
-	sphere.CFrame = CFrame.new(self.PredictedPosition)
-	if not config.Pulse then sphere.Size = Vector3.new(config.Size, config.Size, config.Size) end
-	sphere.Transparency = config.Transparency
-	if not config.Rainbow then sphere.Color = config.Color end
-	if self.SphereTrail then self.SphereTrail.Enabled = config.Trail end
+	part.CFrame = CFrame.new(SilentAim.State.PredictedPosition)
+	if not config.Pulse then part.Size = Vector3.new(config.Size, config.Size, config.Size) end
+	part.Transparency = config.Transparency
+	if not config.Rainbow then part.Color = config.Color end
+	if Sphere.Trail then Sphere.Trail.Enabled = config.Trail end
 end
 
-function TargetTracker:updateTracking()
+local function updateTracking()
 	local screenCenter = Vector2.new(CurrentCamera.ViewportSize.X / 2, CurrentCamera.ViewportSize.Y / 2)
-	if not self.Config.Enabled then
-		self:clearTarget()
-		if self.FieldOfViewFrame then self.FieldOfViewFrame.Visible = self.Config.FieldOfView.Visible and (self.MenuScreen == nil or self.MenuScreen.Enabled) end
+	if not SilentAim.Config.Enabled then
+		clearTarget()
 		return
 	end
-	local player = self:findNearestTarget(screenCenter)
+	local player = findNearestTarget(screenCenter)
 	if not player then
-		self:clearTarget()
-		if self.FieldOfViewFrame then self.FieldOfViewFrame.Visible = self.Config.FieldOfView.Visible and (self.MenuScreen == nil or self.MenuScreen.Enabled) end
+		clearTarget()
 		return
 	end
 	local targetCharacter = player.Character
 	local targetRoot = targetCharacter and targetCharacter:FindFirstChild("HumanoidRootPart")
 	if not targetRoot then
-		self:clearTarget()
-		if self.FieldOfViewFrame then self.FieldOfViewFrame.Visible = self.Config.FieldOfView.Visible and (self.MenuScreen == nil or self.MenuScreen.Enabled) end
+		clearTarget()
 		return
 	end
 	local humanoid = targetCharacter:FindFirstChild("Humanoid")
 	if humanoid then
 		local hitByValue = humanoid:FindFirstChild("HitBy")
 		local disabledByCC = humanoid:FindFirstChild("DisabledByCC")
-		self.TargetIsStunned = hitByValue and tostring(hitByValue.Value) == LocalPlayer.Name and disabledByCC ~= nil
+		SilentAim.State.TargetIsStunned = hitByValue and tostring(hitByValue.Value) == LocalPlayer.Name and disabledByCC ~= nil
 	else
-		self.TargetIsStunned = false
+		SilentAim.State.TargetIsStunned = false
 	end
-	self.CurrentTarget = player
+	SilentAim.State.CurrentTarget = player
 	local targetPosition = targetRoot.Position
-	local character = LocalPlayer.Character
-	local localRoot = character and character:FindFirstChild("HumanoidRootPart")
+	local toTarget = (targetPosition - CurrentCamera.CFrame.Position).Unit
+	local dotProduct = CurrentCamera.CFrame.LookVector:Dot(toTarget)
+	if dotProduct < SilentAim.Config.DirectionThreshold then
+		clearTarget()
+		return
+	end
+	local localCharacter = LocalPlayer.Character
+	local localRoot = localCharacter and localCharacter:FindFirstChild("HumanoidRootPart")
 	if localRoot then
-		self.PredictedCFrame = CFrame.lookAt(
+		SilentAim.State.PredictedCFrame = CFrame.lookAt(
 			Vector3.new(localRoot.Position.X, targetPosition.Y, localRoot.Position.Z),
 			targetPosition
 		)
 	else
-		self.PredictedCFrame = CFrame.new(targetPosition)
+		SilentAim.State.PredictedCFrame = CFrame.new(targetPosition)
 	end
-	self.PredictedPosition = targetPosition
-	for highlightCharacter, highlight in pairs(self.Highlights) do
+	SilentAim.State.PredictedPosition = targetPosition
+	for highlightCharacter, highlight in pairs(SilentAim.State.Highlights) do
 		if highlightCharacter ~= targetCharacter then
 			if highlight and highlight.Parent then highlight:Destroy() end
-			self.Highlights[highlightCharacter] = nil
+			SilentAim.State.Highlights[highlightCharacter] = nil
 		end
 	end
-	self:applyHighlight(targetCharacter)
-	self:updateSphere()
-	if self.FieldOfViewFrame then self.FieldOfViewFrame.Visible = self.Config.FieldOfView.Visible and (self.MenuScreen == nil or self.MenuScreen.Enabled) end
+	applyHighlight(targetCharacter)
+	updateSphere()
+	if FieldOfView.Circle then FieldOfView.Circle.Visible = isFieldOfViewVisible() end
 end
 
 local updateCharData = game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("UpdateCharData")
 
 local puppyware = loadstring(game:HttpGet("https://raw.githubusercontent.com/imagoodpersond/puppyware/main/lib"))()
 local puppywareWindow = puppyware:new({ accent = Color3.fromRGB(0, 210, 255) })
-TargetTracker.MenuScreen = puppywareWindow.screen
+Menu.Screen = puppywareWindow.screen
 
 local function buildSilentAimPage()
 	local page = puppywareWindow:page({ name = "Silent Aim" })
@@ -204,53 +222,43 @@ local function buildSilentAimPage()
 	local pvpAssistSection = page:section({ name = "PVP Assist", side = "left", size = 90 })
 
 	silentSection:toggle({ name = "Enable", default = false, callback = function(value)
-		TargetTracker.Config.Enabled = value
-	end })
-	silentSection:dropdown({ name = "Mode", options = { "Blacklist", "Whitelist" }, default = "Blacklist", callback = function(value)
-		TargetTracker.Config.Mode = value
+		SilentAim.Config.Enabled = value
 	end })
 	silentSection:toggle({ name = "Ignore Ally", default = false, callback = function(value)
-		TargetTracker.Config.IgnoreAlly = value
+		SilentAim.Config.IgnoreAlly = value
 	end })
 	silentSection:toggle({ name = "Mouse Silent", default = false, callback = function(value)
-		TargetTracker.Config.MouseSilent = value
+		SilentAim.Config.MouseSilent = value
 	end })
-	silentSection:textbox({ name = "Add to Blacklist", callback = function(value)
-		if value and value ~= "" then
-			TargetTracker.Config.Blacklist[value] = true
-		end
-	end })
-	silentSection:textbox({ name = "Add to Whitelist", callback = function(value)
-		if value and value ~= "" then
-			TargetTracker.Config.Whitelist[value] = true
-		end
+	silentSection:slider({ name = "Direction Threshold", min = 0, max = 1, default = 0.7, callback = function(value)
+		SilentAim.Config.DirectionThreshold = value
 	end })
 
 	fieldOfViewSection:toggle({ name = "Enable FOV", default = false, callback = function(value)
-		TargetTracker.Config.FieldOfView.Enabled = value
+		SilentAim.Config.FieldOfView.Enabled = value
 	end })
 	fieldOfViewSection:toggle({ name = "Show Circle", default = false, callback = function(value)
-		TargetTracker.Config.FieldOfView.Visible = value
-		if TargetTracker.FieldOfViewFrame then
-			TargetTracker.FieldOfViewFrame.Visible = value and (TargetTracker.MenuScreen == nil or TargetTracker.MenuScreen.Enabled)
+		SilentAim.Config.FieldOfView.Visible = value
+		if FieldOfView.Circle then
+			FieldOfView.Circle.Visible = isFieldOfViewVisible()
 		end
 	end })
 	fieldOfViewSection:slider({ name = "Radius", min = 50, max = 800, default = 300, callback = function(value)
-		TargetTracker.Config.FieldOfView.Radius = value
-		if TargetTracker.FieldOfViewFrame then
-			TargetTracker.FieldOfViewFrame.Radius = value
+		SilentAim.Config.FieldOfView.Radius = value
+		if FieldOfView.Circle then
+			FieldOfView.Circle.Radius = value
 		end
 	end })
 	fieldOfViewSection:slider({ name = "Thickness", min = 1, max = 10, default = 2, callback = function(value)
-		TargetTracker.Config.FieldOfView.Thickness = value
-		if TargetTracker.FieldOfViewFrame then
-			TargetTracker.FieldOfViewFrame.Thickness = value
+		SilentAim.Config.FieldOfView.Thickness = value
+		if FieldOfView.Circle then
+			FieldOfView.Circle.Thickness = value
 		end
 	end })
 	fieldOfViewSection:colorpicker({ name = "Color", default = Color3.new(1, 1, 1), callback = function(value)
-		TargetTracker.Config.FieldOfView.Color = value
-		if TargetTracker.FieldOfViewFrame then
-			TargetTracker.FieldOfViewFrame.Color = value
+		SilentAim.Config.FieldOfView.Color = value
+		if FieldOfView.Circle then
+			FieldOfView.Circle.Color = value
 		end
 	end })
 
@@ -288,71 +296,71 @@ local function buildVisualPage()
 	local sphereSection = page:section({ name = "Target Sphere" })
 
 	fakePingSection:toggle({ name = "Enable", default = false, callback = function(value)
-		FakePing.Enabled = value
+		FakePing.Config.Enabled = value
 	end })
 	fakePingSection:slider({ name = "Amount (ms)", min = 0, max = 500, default = 0, callback = function(value)
-		FakePing.Amount = value
+		FakePing.Config.Amount = value
 	end })
 
 	sphereSection:toggle({ name = "Enable", default = false, callback = function(value)
-		TargetTracker.Config.Sphere.Enabled = value
-		if not value and TargetTracker.SphereVisualization then
-			TargetTracker.SphereVisualization.Transparency = 1
+		Sphere.Config.Enabled = value
+		if not value and Sphere.Part then
+			Sphere.Part.Transparency = 1
 		end
 	end })
 	sphereSection:colorpicker({ name = "Color", default = Color3.fromRGB(255, 0, 0), callback = function(value)
-		TargetTracker.Config.Sphere.Color = value
-		if TargetTracker.SphereVisualization and not TargetTracker.Config.Sphere.Rainbow then
-			TargetTracker.SphereVisualization.Color = value
+		Sphere.Config.Color = value
+		if Sphere.Part and not Sphere.Config.Rainbow then
+			Sphere.Part.Color = value
 		end
 	end })
 	sphereSection:slider({ name = "Transparency", min = 0, max = 1, default = 0.5, callback = function(value)
-		TargetTracker.Config.Sphere.Transparency = value
+		Sphere.Config.Transparency = value
 	end })
 	sphereSection:slider({ name = "Size", min = 1, max = 20, default = 3, callback = function(value)
-		TargetTracker.Config.Sphere.Size = value
+		Sphere.Config.Size = value
 	end })
 	sphereSection:toggle({ name = "Trail", default = false, callback = function(value)
-		TargetTracker.Config.Sphere.Trail = value
-		if TargetTracker.SphereTrail then
-			TargetTracker.SphereTrail.Enabled = value and TargetTracker.Config.Sphere.Enabled
+		Sphere.Config.Trail = value
+		if Sphere.Trail then
+			Sphere.Trail.Enabled = value and Sphere.Config.Enabled
 		end
 	end })
 	sphereSection:toggle({ name = "Rainbow", default = false, callback = function(value)
-		TargetTracker.Config.Sphere.Rainbow = value
-		if TargetTracker.RainbowConnection then
-			TargetTracker.RainbowConnection:Disconnect()
-			TargetTracker.RainbowConnection = nil
+		Sphere.Config.Rainbow = value
+		if Sphere.RainbowConnection then
+			Sphere.RainbowConnection:Disconnect()
+			Sphere.RainbowConnection = nil
 		end
 		if not value then return end
-		TargetTracker.RainbowConnection = RunService.Heartbeat:Connect(function()
+		Sphere.RainbowConnection = RunService.Heartbeat:Connect(function()
 			if scriptKilled then
-				TargetTracker.RainbowConnection:Disconnect()
-				TargetTracker.RainbowConnection = nil
+				Sphere.RainbowConnection:Disconnect()
+				Sphere.RainbowConnection = nil
 				return
 			end
-			if TargetTracker.SphereVisualization and TargetTracker.Config.Sphere.Rainbow then
-				TargetTracker.SphereVisualization.Color = Color3.fromHSV((tick() % 5) / 5, 1, 1)
+			if Sphere.Part and Sphere.Config.Rainbow then
+				Sphere.Part.Color = Color3.fromHSV((tick() % 5) / 5, 1, 1)
 			end
 		end)
 	end })
 	sphereSection:toggle({ name = "Pulse", default = false, callback = function(value)
-		TargetTracker.Config.Sphere.Pulse = value
-		if TargetTracker.PulseConnection then
-			TargetTracker.PulseConnection:Disconnect()
-			TargetTracker.PulseConnection = nil
+		Sphere.Config.Pulse = value
+		if Sphere.PulseConnection then
+			Sphere.PulseConnection:Disconnect()
+			Sphere.PulseConnection = nil
 		end
 		if not value then return end
-		TargetTracker.PulseConnection = RunService.Heartbeat:Connect(function()
+		Sphere.PulseConnection = RunService.Heartbeat:Connect(function()
 			if scriptKilled then
-				TargetTracker.PulseConnection:Disconnect()
-				TargetTracker.PulseConnection = nil
+				Sphere.PulseConnection:Disconnect()
+				Sphere.PulseConnection = nil
 				return
 			end
-			if TargetTracker.SphereVisualization and TargetTracker.Config.Sphere.Pulse then
+			if Sphere.Part and Sphere.Config.Pulse then
 				local pulse = (math.sin(tick() * 4) + 1) / 2
-				local baseSize = TargetTracker.Config.Sphere.Size
-				TargetTracker.SphereVisualization.Size = Vector3.new(baseSize + pulse * 2, baseSize + pulse * 2, baseSize + pulse * 2)
+				local baseSize = Sphere.Config.Size
+				Sphere.Part.Size = Vector3.new(baseSize + pulse * 2, baseSize + pulse * 2, baseSize + pulse * 2)
 			end
 		end)
 	end })
@@ -370,13 +378,12 @@ local function buildMiscPage()
 
 	scriptSection:button({ name = "Kill Script", callback = function()
 		scriptKilled = true
-		TargetTracker:removeAllHighlights()
-		if TargetTracker.RainbowConnection then TargetTracker.RainbowConnection:Disconnect() end
-		if TargetTracker.PulseConnection then TargetTracker.PulseConnection:Disconnect() end
-		if getgenv().AntiDelayConnection then getgenv().AntiDelayConnection:Disconnect() end
+		removeAllHighlights()
+		if Sphere.RainbowConnection then Sphere.RainbowConnection:Disconnect() end
+		if Sphere.PulseConnection then Sphere.PulseConnection:Disconnect() end
 		if getgenv().DashBoostConnection then getgenv().DashBoostConnection:Disconnect() end
-		if TargetTracker.SphereVisualization then TargetTracker.SphereVisualization:Destroy() end
-		if TargetTracker.FieldOfViewFrame then TargetTracker.FieldOfViewFrame:Remove() end
+		if Sphere.Part then Sphere.Part:Destroy() end
+		if FieldOfView.Circle then FieldOfView.Circle:Remove() end
 		pcall(function() puppywareWindow.screen:Destroy() end)
 	end })
 end
@@ -388,11 +395,11 @@ buildMiscPage()
 local fieldOfViewCircle = Drawing.new("Circle")
 fieldOfViewCircle.Visible = false
 fieldOfViewCircle.Filled = false
-fieldOfViewCircle.Radius = TargetTracker.Config.FieldOfView.Radius
-fieldOfViewCircle.Thickness = TargetTracker.Config.FieldOfView.Thickness
-fieldOfViewCircle.Color = TargetTracker.Config.FieldOfView.Color
+fieldOfViewCircle.Radius = SilentAim.Config.FieldOfView.Radius
+fieldOfViewCircle.Thickness = SilentAim.Config.FieldOfView.Thickness
+fieldOfViewCircle.Color = SilentAim.Config.FieldOfView.Color
 fieldOfViewCircle.Position = Vector2.new(CurrentCamera.ViewportSize.X / 2, CurrentCamera.ViewportSize.Y / 2)
-TargetTracker.FieldOfViewFrame = fieldOfViewCircle
+FieldOfView.Circle = fieldOfViewCircle
 
 local spherePart = Instance.new("Part")
 spherePart.Name = "TargetSphere"
@@ -402,10 +409,10 @@ spherePart.CanCollide = false
 spherePart.Anchored = true
 spherePart.Transparency = 1
 spherePart.Size = Vector3.new(3, 3, 3)
-spherePart.Color = TargetTracker.Config.Sphere.Color
+spherePart.Color = Sphere.Config.Color
 spherePart.CastShadow = false
 spherePart.Parent = workspace
-TargetTracker.SphereVisualization = spherePart
+Sphere.Part = spherePart
 
 local sphereAttachment0 = Instance.new("Attachment", spherePart)
 local sphereAttachment1 = Instance.new("Attachment", spherePart)
@@ -417,7 +424,7 @@ sphereTrail.Attachment1 = sphereAttachment1
 sphereTrail.Lifetime = 0.3
 sphereTrail.Enabled = false
 sphereTrail.Parent = spherePart
-TargetTracker.SphereTrail = sphereTrail
+Sphere.Trail = sphereTrail
 
 if getgenv().OriginalNamecallHook then
 	pcall(hookmetamethod, game, "__namecall", getgenv().OriginalNamecallHook)
@@ -429,28 +436,32 @@ getgenv().OriginalNamecallHook = hookmetamethod(game, "__namecall", function(...
 	local hookSelf = arguments[1]
 	local method = getnamecallmethod()
 	if scriptKilled then return getgenv().OriginalNamecallHook(table.unpack(arguments, 1, arguments.n)) end
-	if FakePing.Enabled and method == "FireServer" and FakePing.Amount > 0 then task.wait(FakePing.Amount / 1000) end
-	if not TargetTracker.Config.Enabled or hookSelf ~= updateCharData or method ~= "FireServer" then
+	if FakePing.Config.Enabled and method == "FireServer" and FakePing.Config.Amount > 0 then
+		task.wait(FakePing.Config.Amount / 1000)
+	end
+	if not SilentAim.Config.Enabled or hookSelf ~= updateCharData or method ~= "FireServer" then
 		return getgenv().OriginalNamecallHook(table.unpack(arguments, 1, arguments.n))
 	end
-	if not TargetTracker.PredictedCFrame or TargetTracker.TargetIsStunned then
+	if not SilentAim.State.PredictedCFrame or SilentAim.State.TargetIsStunned then
 		return getgenv().OriginalNamecallHook(table.unpack(arguments, 1, arguments.n))
 	end
 	local modified = table.pack(table.unpack(arguments, 1, arguments.n))
-	modified[2] = TargetTracker.PredictedCFrame
-	if TargetTracker.Config.MouseSilent and TargetTracker.PredictedPosition then
-		modified[3] = CFrame.new(TargetTracker.PredictedPosition)
+	modified[2] = SilentAim.State.PredictedCFrame
+	if SilentAim.Config.MouseSilent and SilentAim.State.PredictedPosition then
+		modified[3] = CFrame.new(SilentAim.State.PredictedPosition)
 	end
 	return getgenv().OriginalNamecallHook(table.unpack(modified, 1, modified.n))
 end)
 
-getgenv().SilentAimTracker = TargetTracker
+getgenv().SilentAim = SilentAim
+getgenv().Sphere = Sphere
+getgenv().FakePing = FakePing
 
 RunService.Heartbeat:Connect(function()
 	if scriptKilled then return end
-	TargetTracker:updateTracking()
-	if TargetTracker.FieldOfViewFrame then
-		TargetTracker.FieldOfViewFrame.Position = Vector2.new(CurrentCamera.ViewportSize.X / 2, CurrentCamera.ViewportSize.Y / 2)
-		TargetTracker.FieldOfViewFrame.Radius = TargetTracker.Config.FieldOfView.Radius
+	updateTracking()
+	if FieldOfView.Circle then
+		FieldOfView.Circle.Position = Vector2.new(CurrentCamera.ViewportSize.X / 2, CurrentCamera.ViewportSize.Y / 2)
+		FieldOfView.Circle.Radius = SilentAim.Config.FieldOfView.Radius
 	end
 end)
