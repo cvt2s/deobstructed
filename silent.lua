@@ -438,6 +438,9 @@ getgenv().OriginalNamecallHook = hookmetamethod(game, "__namecall", function(...
 	end
 	local modified = table.pack(table.unpack(arguments, 1, arguments.n))
 	modified[2] = TargetTracker.PredictedCFrame
+	if TargetTracker.Config.MouseSilent and TargetTracker.PredictedPosition then
+		modified[3] = CFrame.new(TargetTracker.PredictedPosition)
+	end
 	return getgenv().OriginalNamecallHook(table.unpack(modified, 1, modified.n))
 end)
 
